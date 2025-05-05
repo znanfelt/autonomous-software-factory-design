@@ -1,4 +1,3 @@
-# **An Architectural Framework for Autonomous Software Development via Multi-Agent Systems**
 - [**An Architectural Framework for Autonomous Software Development via Multi-Agent Systems**](#an-architectural-framework-for-autonomous-software-development-via-multi-agent-systems)
   - [**I. Introduction: The Dawn of Autonomous Software Development**](#i-introduction-the-dawn-of-autonomous-software-development)
     - [**A. The Paradigm Shift in SDLC**](#a-the-paradigm-shift-in-sdlc)
@@ -39,6 +38,8 @@
     - [**C. Key Considerations for Success**](#c-key-considerations-for-success)
     - [**D. Strategic Recommendations for Organizations**](#d-strategic-recommendations-for-organizations)
       - [**Works cited**](#works-cited)
+
+# **An Architectural Framework for Autonomous Software Development via Multi-Agent Systems**
 
 ## **I. Introduction: The Dawn of Autonomous Software Development**
 
