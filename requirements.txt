@@ -1,0 +1,12 @@
+langchain>=0.1.0,<0.2.0
+langchain-openai>=0.1.0,<0.2.0
+langgraph>=0.0.40,<0.1.0
+llama-index>=0.10.0,<0.11.0
+# llama-index-embeddings-openai # Pulled in by llama-index if openai extras used
+# llama-index-llms-openai       # Pulled in by llama-index if openai extras used
+openai>=1.0.0,<2.0.0
+# Ensure specific versions if you encounter compatibility issues
+# Example for more specific LlamaIndex if needed:
+# llama-index-core>=0.10.20
+# llama-index-readers-file>=0.1.10
+# llama_index_client # If using LlamaCloud
