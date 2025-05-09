@@ -1,0 +1,14 @@
+# .dockerignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.git/
+.gitignore
+*.md
+# If you have local output artifacts you don't want to copy into the image:
+# output_artifacts_demo/
