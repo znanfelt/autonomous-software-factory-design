@@ -34,11 +34,12 @@ def architect_agent_node(state: GraphState) -> GraphState:
                     logger.warning(f"MockLLM invoked for {model_name_key}"); return mock_response
             return MockLLM() # type: ignore
     llm_architect = get_llm_instance("architect_llm", state, temperature=0.2, mock_response='{"chosen_language": "python", "framework_hint": "standard_library", "high_level_notes": "Focus on a clear, single Python function for this MVP."}')
-    architect_chain_instance = architect_prompt_template | llm_architect | StrOutputParser()
+    architect_chain_instance = architect_prompt_template | llm_architect | SimpleJsonOutputParser()
     arch_decision_json = architect_chain_instance.invoke({
         "user_request": user_request,
         "architectural_principles_context": architectural_principles_context
     })
+    logger.error(type(arch_decision_json))
     logger.debug(f"Architect LLM Raw Output (parsed): {arch_decision_json}")
     if isinstance(arch_decision_json, dict) and "chosen_language" in arch_decision_json and not arch_decision_json.get("error"):
         logger.info(f"Architect Decision: Language='{arch_decision_json.get('chosen_language')}', Framework='{arch_decision_json.get('framework_hint')}', Notes='{arch_decision_json.get('high_level_notes', '')[:50]}...'. Exiting Architect Node.")
@@ -84,7 +85,7 @@ def planner_agent_node(state):
                     logger.warning(f"MockLLM invoked for {model_name_key}"); return mock_response
             return MockLLM() # type: ignore
     llm_planner = get_llm_instance("planner_llm", state, temperature=0.3, mock_response='{"clarification_questions": [], "planned_task_description": "Mock plan for greet function", "planner_notes": "Mock notes: Ensure docstring for greet function."}')
-    planner_chain_instance = planner_prompt_template | llm_planner | StrOutputParser()
+    planner_chain_instance = planner_prompt_template | llm_planner | SimpleJsonOutputParser()
     planned_output_json = planner_chain_instance.invoke({
         "user_request_to_process": current_request_to_process,
         "planning_guidelines_context": planning_context,
@@ -154,7 +155,7 @@ def developer_agent_node(state):
                     logger.warning(f"MockLLM invoked for {model_name_key}"); return mock_response
             return MockLLM() # type: ignore
     llm_developer = get_llm_instance("developer_llm", state, mock_response="```python\n# Mocked Code by Developer\ndef example():\n  pass\n```")
-    developer_chain_instance = dev_code_gen_prompt_template | llm_developer | StrOutputParser()
+    developer_chain_instance = dev_code_gen_prompt_template | llm_developer | SimpleJsonOutputParser()
     llm_response = developer_chain_instance.invoke({
         "developer_task_description": dev_task_description,
         "developer_notes": dev_notes or "None",
@@ -255,7 +256,7 @@ def validation_agent_node(state):
                     logger.warning(f"MockLLM invoked for {model_name_key}"); return mock_response
             return MockLLM() # type: ignore
     llm_validation = get_llm_instance("validation_llm", state, temperature=0.1)
-    validation_chain_instance = validation_prompt_template | llm_validation | StrOutputParser()
+    validation_chain_instance = validation_prompt_template | llm_validation | SimpleJsonOutputParser()
     validation_output_json = validation_chain_instance.invoke({
         "task_description": task_desc, "planner_notes": planner_notes_str or "None",
         "code_to_validate": code_to_validate, "validation_rules_context": validation_rules_context
@@ -301,7 +302,7 @@ def test_case_designer_node(state):
             return MockLLM() # type: ignore
     llm_test_designer = get_llm_instance("developer_llm", state, temperature=0.4)
     from langchain_core.output_parsers import StrOutputParser
-    test_designer_chain = test_case_designer_prompt_template | llm_test_designer | StrOutputParser()
+    test_designer_chain = test_case_designer_prompt_template | llm_test_designer | SimpleJsonOutputParser()
     try:
         response_json = test_designer_chain.invoke({
             "function_description": task_desc,
@@ -349,3 +350,72 @@ def test_case_designer_node(state):
     except Exception as e:
         logger.error(f"Test Case Designer node error: {e}", exc_info=True)
         return {**state, "current_error": f"Test Case Designer Exception: {e}", "generated_test_cases": []}
+    
+def critique_agent_node(state: GraphState) -> GraphState:
+    logger = logging.getLogger(__name__)
+    logger.info("Entering Critique Node")
+    code_in_question = state["generated_code"]; task_desc = state["task_description"]; planner_notes_str = state["planner_notes"]
+    test_failure_msg = state.get("test_message", "") # "" instead of N/A for easier concatenation
+    val_issues = state.get("validation_issues", [])
+    
+    reason_for_critique = ""
+    if state.get("test_status") not in ["success", "tool_error", None] and test_failure_msg: 
+        reason_for_critique += f"Functional test failed: {test_failure_msg}. "
+    if val_issues: 
+        reason_for_critique += f"Validation issues found: {'; '.join(val_issues)}. "
+
+    if not code_in_question: 
+        logger.error("Critique: No code provided to critique."); 
+        return {**state, "critique": "Error: No code provided to critique.", "current_error": "Critique: No code."}
+    if not reason_for_critique.strip(): 
+        # This can happen if a tool_error from dev/QA led here without a specific code issue to critique.
+        # Or if validation passed but somehow routed here (graph logic error).
+        logger.warning("Critique: No specific test failure or validation issue to critique. Providing general guidance.");
+        critique_output = "The previous step resulted in an error or an issue that needs developer attention. Please review the logs and the task requirements carefully to identify the problem and generate corrected code."
+    else:
+        logger.debug(f"Critique agent analyzing. Reason: {reason_for_critique.strip()[:150]}...")
+        debugging_tips_context = "No debugging tips RAG context available."
+        if critique_rag_query_engine_global:
+            try: response = critique_rag_query_engine_global.query(f"Debugging tips for: {reason_for_critique.strip()}"); debugging_tips_context = str(response)
+            except Exception as e: logger.warning(f"RAG error (critique): {e}"); debugging_tips_context = f"RAG error (critique): {e}"
+        
+        llm_critique = get_llm_instance("critique_llm", state, temperature=0.25, mock_response="Mock critique: Re-check the core logic and ensure all requirements from planner notes are met.")
+        critique_chain_instance = critique_prompt_template | llm_critique | StrOutputParser()
+        critique_output = critique_chain_instance.invoke({
+            "task_description": task_desc, "planner_notes": planner_notes_str or "None", 
+            "code_in_question": code_in_question,
+            "test_failure_message": test_failure_msg if state.get("test_status") != "success" else "N/A",
+            "validation_issues_list": "; ".join(val_issues) if val_issues else "N/A", 
+            "debugging_tips_context": debugging_tips_context
+        })
+        
+    logger.info(f"Generated Critique: {critique_output}. Exiting Critique Node.")
+    updated_feedback_history = list(state.get("feedback_history", []))
+    # Add the current raw test message and validation issues to feedback history before the new critique
+    if test_failure_msg: updated_feedback_history.append(f"Raw Test Failure (DevAttempt {state['refinement_count']}): {test_failure_msg}")
+    if val_issues: updated_feedback_history.append(f"Raw Validation Issues (DevAttempt {state['refinement_count']}): {'; '.join(val_issues)}")
+    updated_feedback_history.append(f"Critique on DevAttempt {state['refinement_count']}: {critique_output}")
+    
+    return {**state, "critique": critique_output, "current_error": None, "feedback_history": updated_feedback_history}
+
+
+
+class SimpleJsonOutputParser(StrOutputParser):
+    def parse(self, text:str) -> Any:
+        # Try to extract JSON from ```json ... ``` markdown block
+        match_md = re.search(r"```json\n(.*?)\n```", text, re.DOTALL)
+        if match_md:
+            json_text = match_md.group(1).strip()
+        else:
+            # If no markdown, assume the whole text is JSON or attempt to find JSON object within text
+            match_obj = re.search(r"\{.*\}", text, re.DOTALL)
+            if match_obj:
+                json_text = match_obj.group(0)
+            else: # No clear JSON object found
+                logger.error(f"JSON Parser: No JSON block or object found in text: {text[:200]}...")
+                return {"error": "JSON parsing failed: No JSON found", "raw_text": text}
+        try:
+            return json.loads(json_text)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON Parser Error: {e} in JSON text: {json_text[:200]}...")
+            return {"error": f"JSON parsing failed: {e}", "raw_json_text": json_text, "original_text": text}

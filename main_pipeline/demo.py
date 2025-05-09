@@ -5,6 +5,34 @@ from pathlib import Path
 from .graph import build_graph
 from .state import GraphState
 from .rag import initialize_rag_engines, architect_rag_query_engine_global
+from main_pipeline import agents, tools, prompts, state, rag, graph
+
+# Move initial_state to the module level for accessibility
+initial_user_req = "Can you make a python function? It should be for greeting people. Needs good docs."
+initial_state: GraphState = {
+    "initial_user_request": initial_user_req,
+    "architectural_decision": None,
+    "clarified_user_input": None, "clarification_questions_for_user": None,
+    "planner_iteration_count": 0, "max_planner_iterations": int(os.getenv("MAX_PLANNER_ITERATIONS", "2")),
+    "llm_models_config": {
+        "architect_llm":  os.getenv("ARCHITECT_LLM_MODEL", "gpt-4o"),
+        "planner_llm":    os.getenv("PLANNER_LLM_MODEL", "gpt-4o"),
+        "developer_llm":  os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"),
+        "qa_llm":         os.getenv("QA_LLM_MODEL", "gpt-4o"),
+        "validation_llm": os.getenv("VALIDATION_LLM_MODEL", "gpt-3.5-turbo"),
+        "critique_llm":   os.getenv("CRITIQUE_LLM_MODEL", "gpt-4o-mini")
+    },
+    "task_description": "", "planned_task_description": None, "planner_notes": None,
+    "generated_test_cases": [{"function_name": "greet_user", "inputs": ("Alice",), "expected_output": "Hello, Alice!", "description": "Test greeting for Alice"}],
+    "current_test_case_index": 0,
+    "all_tests_passed": False,
+    "generated_code": None, "current_test_status": None, "current_test_message": None, "critique": None,
+    "validation_status": None, "validation_issues": [],
+    "test_results_summary": [],
+    "packaged_artifacts_info": None, "handoff_summary": None,
+    "feedback_history": [], "refinement_count": 0, "max_refinements": int(os.getenv("MAX_REFINEMENTS", "3")),
+    "current_error": None, "qa_agent_messages": []
+}
 
 def run_demo(cleanup_artifacts=True):
     logger = logging.getLogger(__name__)
@@ -18,36 +46,8 @@ def run_demo(cleanup_artifacts=True):
         initialize_rag_engines()
     if not os.getenv("OPENAI_API_KEY"):
         logger.warning("OPENAI_API_KEY not found in environment. LLM calls may fail or use mocks.")
-    max_refinements_env = int(os.getenv("MAX_REFINEMENTS", "3"))
-    max_planner_iterations_env = int(os.getenv("MAX_PLANNER_ITERATIONS", "2"))
-    default_llm_models = {
-        "architect_llm":  os.getenv("ARCHITECT_LLM_MODEL", "gpt-4o"),
-        "planner_llm":    os.getenv("PLANNER_LLM_MODEL", "gpt-4o"),
-        "developer_llm":  os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"),
-        "qa_llm":         os.getenv("QA_LLM_MODEL", "gpt-4o"),
-        "validation_llm": os.getenv("VALIDATION_LLM_MODEL", "gpt-3.5-turbo"),
-        "critique_llm":   os.getenv("CRITIQUE_LLM_MODEL", "gpt-4o-mini")
-    }
-    logger.info(f"Using LLM Configuration: {default_llm_models}")
-    logger.info(f"Max Developer Refinements: {max_refinements_env}, Max Planner Iterations: {max_planner_iterations_env}")
-    initial_user_req = "Can you make a python function? It should be for greeting people. Needs good docs."
-    initial_state: GraphState = {
-        "initial_user_request": initial_user_req,
-        "architectural_decision": None,
-        "clarified_user_input": None, "clarification_questions_for_user": None,
-        "planner_iteration_count": 0, "max_planner_iterations": max_planner_iterations_env,
-        "llm_models_config": default_llm_models,
-        "task_description": "", "planned_task_description": None, "planner_notes": None,
-        "generated_test_cases": [{"function_name": "greet_user", "inputs": ("Alice",), "expected_output": "Hello, Alice!", "description": "Test greeting for Alice"}],
-        "current_test_case_index": 0,
-        "all_tests_passed": False,
-        "generated_code": None, "current_test_status": None, "current_test_message": None, "critique": None,
-        "validation_status": None, "validation_issues": [],
-        "test_results_summary": [],
-        "packaged_artifacts_info": None, "handoff_summary": None,
-        "feedback_history": [], "refinement_count": 0, "max_refinements": max_refinements_env,
-        "current_error": None, "qa_agent_messages": []
-    }
+    logger.info(f"Using LLM Configuration: {initial_state['llm_models_config']}")
+    logger.info(f"Max Developer Refinements: {initial_state['max_refinements']}, Max Planner Iterations: {initial_state['max_planner_iterations']}")
     app = build_graph()
     logger.info("Invoking the graph...")
     final_state = app.invoke(initial_state)

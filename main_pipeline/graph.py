@@ -4,6 +4,7 @@ from .agents import (
 )
 from .state import GraphState
 from langgraph.graph import StateGraph, END
+import logging
 
 # Graph assembly, routers, and build_graph
 
@@ -71,6 +72,24 @@ def decide_after_packaging(state):
     else:
         return END
 
+# Define the artifact_packaging_node function
+def artifact_packaging_node(state: GraphState) -> GraphState:
+    logger = logging.getLogger(__name__)
+    logger.info("Entering Artifact Packaging Node")
+    # Example logic for packaging artifacts (replace with actual implementation)
+    packaged_artifacts_info = {"code_file": "output.py", "documentation": "README.md"}
+    logger.info(f"Packaged artifacts: {packaged_artifacts_info}")
+    return {**state, "packaged_artifacts_info": packaged_artifacts_info, "current_error": None}
+
+# Define the handoff_node function
+def handoff_node(state: GraphState) -> GraphState:
+    logger = logging.getLogger(__name__)
+    logger.info("Entering Handoff Node")
+    # Example logic for handoff (replace with actual implementation)
+    handoff_summary = "Artifacts successfully handed off to the next stage."
+    logger.info(f"Handoff summary: {handoff_summary}")
+    return {**state, "handoff_summary": handoff_summary, "current_error": None}
+
 def build_graph():
     workflow = StateGraph(GraphState)
     workflow.add_node("architect_agent_node", architect_agent_node)
@@ -81,6 +100,8 @@ def build_graph():
     workflow.add_node("qa_agent_node", qa_agent_node)
     workflow.add_node("validation_agent_node", validation_agent_node)
     workflow.add_node("critique_agent_node", critique_agent_node)
+    workflow.add_node("artifact_packaging_node", artifact_packaging_node)
+    workflow.add_node("handoff_node", handoff_node)
     # Add artifact packaging and handoff nodes as needed
     workflow.set_entry_point("architect_agent_node")
     workflow.add_conditional_edges("architect_agent_node", decide_after_architect, 

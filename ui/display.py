@@ -1,4 +1,5 @@
 import streamlit as st
+from main_pipeline import agents, demo, tools, prompts, state, rag, graph
 
 # UI display helpers (e.g., display_graph_state) will go here
 
