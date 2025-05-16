@@ -1,109 +1,218 @@
-# Design for vibe coding
+# Design: Simple SDLC App with PocketFlow, Streamlit GUI, and HITL
 
-Let's revise the design document, explicitly incorporating LangChain/LangGraph, AutoGen/CrewAI as potential frameworks, LlamaIndex for the Knowledge Base, LLM Function Calling/Taskweaver for the Tool Repository/MCP, and the principles of 12-Factor Agents.
+## 1. Requirements**
 
-Here's the updated design document, focusing on a path from simple prototype to larger enterprise use cases:
+* **Goal:** Create a web application where a user can describe a simple Python function, and an AI system will attempt to generate the code, generate test cases, test it, and allow the user to review, approve, or request refinements.
+* **User Stories:**
+  * As a user, I want to input a natural language description of a Python function I need.
+  * As a user, if my initial request is ambiguous, I want the system to ask me clarifying questions.
+  * As a user, I want the system to generate Python code for my function.
+  * As a user, I want the system to generate basic test cases for the code.
+  * As a user, I want the system to run the tests and show me the results.
+  * As a user, I want to review the generated code and test results.
+  * As a user, I want to "Approve" the code if it's good, or "Reject" it and provide feedback if it needs changes.
+  * As a user, if I reject the code, I want the system to try and refine it based on my feedback (up to a few times).
+  * As a user, I want to see the final approved code or a message if the system couldn't satisfy my request after refinements.
+* **GUI:** Streamlit will be used for the user interface.
+* **HITL:** Human interaction will occur for initial requirements, clarifications, and final review/feedback.
+* **PocketFlow:** The core SDLC logic (planning, coding, testing, critiquing, refining) will be managed by PocketFlow nodes and flows.
 
----
+## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)**
 
-## Revised Design Document: Autonomous Data Pipeline Factory via Multi-Agent Systems
+The application will progress through several stages, managed by `streamlit.session_state`. PocketFlow `Flow` instances will be run at different stages.
 
-### I. Introduction: The Dawn of Autonomous Data Pipeline Development, Powered by Modern AI Frameworks
+* **Stage 1: Requirement Elicitation**
+  * User provides initial function description.
+  * **PocketFlow `ElicitationFlow`:** `InputNode` -> `PlannerCoderNode`
+    * `InputNode`: Gets input from UI.
+    * `PlannerCoderNode`:
+      * *If request is clear:* Plans the function (name, params, return) and generates initial code. Sets next UI stage to `TEST_GENERATION_EXECUTION`.
+      * *If request is ambiguous:* Generates clarification questions. Sets next UI stage to `CLARIFICATION`.
+* **Stage 2: Clarification (HITL)**
+  * UI displays clarification questions. User provides more details.
+  * **PocketFlow `ElicitationFlow` (re-run):** `InputNode` (with refined request) -> `PlannerCoderNode`.
+    * Loop until `PlannerCoderNode` deems the request clear.
+* **Stage 3: Test Generation & Execution**
+  * **PocketFlow `TestAndReviewFlow`:** `TestDesignerExecutorNode`
+    * `TestDesignerExecutorNode`: Generates test cases (e.g., 2-3 simple ones) based on the plan, then executes them against the generated code.
+    * Sets next UI stage to `HUMAN_REVIEW`.
+* **Stage 4: Human Review (HITL)**
+  * UI displays generated code, test results, and validation notes.
+  * User clicks "Approve" or "Reject" (can add a text box for rejection reason).
+  * If "Approve": Sets next UI stage to `COMPLETED`.
+  * If "Reject": Sets next UI stage to `CRITIQUE_AND_REFINE`.
+* **Stage 5: Critique & Refine (Loop)**
+  * **PocketFlow `RefinementFlow`:** `CritiqueNode` -> `PlannerCoderNode` (in refine mode)
+    * `CritiqueNode`: Takes rejection reason/test failures, generates critique for `PlannerCoderNode`.
+    * `PlannerCoderNode`: Attempts to generate revised code based on critique.
+  * Loop back to Stage 3 (`TEST_GENERATION_EXECUTION`) with refined code.
+  * Limit refinement loops (e.g., max 3 refinements). If exceeded, set UI stage to `MAX_REFINEMENTS_FAILED`.
+* **Stage 6: Completed / Failed**
+  * `COMPLETED`: **PocketFlow `PackagingFlow`:** `PackageNode` (displays final code and success message).
+  * `MAX_REFINEMENTS_FAILED`: Display failure message.
 
-The vision for an autonomous system capable of generating production-ready data pipelines remains the core driver. By leveraging advancements in Artificial Intelligence, particularly Multi-Agent Systems (MAS), and integrating powerful open-source frameworks, we aim to automate the interpretation of data requirements, design of pipeline architectures, code generation (Scala Spark, Airflow DAGs), definition of data contracts and quality checks, and preparation of artifacts for human operators. This updated design incorporates specific, promising technologies to accelerate prototype development and ensure future scalability for enterprise use cases. The human role evolves towards defining high-level requirements and validating system outputs.
+**Simplified Flow Diagram for PocketFlow Segments:**
 
-### II. Vision: From Data Requirements to Production-Ready Airflow Artifacts Autonomously, Via a Framework-Driven Approach
+* **Elicitation & Initial Code Gen Flow:**
 
-The core vision is unchanged: ingest data transformation requirements and autonomously deliver production-ready data pipeline artifacts (Scala Spark code, Airflow DAGs, data contracts, documentation). These artifacts will be structured for seamless handoff to a human operations team. The goal is minimal human intervention in the automated development process itself, with a structured human-in-the-loop phase initially for requirement clarification, evolving towards direct, potentially less structured input intake as the system matures. The use of established MAS and LLM frameworks provides a solid foundation for both prototyping and scaling.
+    ```text
+    (User Input via UI) -> InputNode -> PlannerCoderNode -> (Code/Plan OR Clarification Questions)
+    ```
 
-### III. Conceptual Architecture: The Autonomous Data Pipeline Factory - A Framework-Based Blueprint
+* **Testing Flow:**
 
-The "Autonomous Data Pipeline Factory" transforms raw requirements into executable data pipeline components, now explicitly leveraging modern AI frameworks.
+    ```text
+    (Code/Plan from PlannerCoderNode) -> TestDesignerExecutorNode -> (Test Results)
+    ```
 
-#### A. High-Level System Blueprint (Framework-Informed)
+* **Refinement Flow (if review rejected):**
 
-The SDLC flow is maintained, with components now mapped to specific technology areas:
+    ```text
+    (Rejection Reason/Test Failures, Old Code/Plan) -> CritiqueNode -> PlannerCoderNode (refine mode) -> (New Code)
+    ```
 
-1. **Requirements Intake (Leveraging LLMs & potentially RAG):** The system receives data pipeline requirements. An initial human-in-the-loop phase for clarification is managed here.
-2. **Analysis & Planning (Orchestrator & Agents):** Agents interpret requirements, plan the pipeline structure, leveraging the Orchestrator.
-3. **Design & Architecture (Architect Agent via Framework):** An Architect agent designs the architecture, technology choices, data flow, and initial data contracts, guided by the Orchestrator and framework.
-4. **Code Generation & Implementation (Developer Agents via Framework & Tool Use):** Developer agents write code (Scala Spark, Airflow), using the framework's capabilities to interact with tools (compilers, VCS) and the Knowledge Base. The Data Quality/Contract Agent defines rules and contracts.
-5. **Testing & QA (QA Agent via Framework & Tool Use):** QA agents execute tests and validate artifacts, interacting with testing tools and data validation tools via the framework's tool use mechanisms.
-6. **Security & Compliance (Security/Compliance Agents via Framework & Tool Use):** Agents scan code and configurations, using security tools via the framework.
-7. **Iterative Refinement (Orchestrator & Refinement Agent):** The **Orchestrator (specifically LangGraph)** manages feedback loops and state transitions based on agent outputs (tests failed, security issues found), directing agents to iterate.
-8. **Artifact Packaging:** The system packages final, validated artifacts.
-9. **Handoff:** Packaged artifacts are delivered.
+* **Packaging Flow (if review approved):**
 
-#### B. Core Components (Framework Mapping)
+    ```text
+    (Approved Code) -> PackageNode -> (Display Final Output)
+    ```
 
-The factory's components are underpinned by specific framework choices:
+**3. Utility Functions (`utils/`)**
 
-1. **Requirements Ingestion & Interpretation Engine:** Receives requirements, uses LLMs for parsing. Leverages **LlamaIndex** for initial RAG to fetch context (e.g., existing project info, data source metadata) to aid interpretation. Handles ambiguity by structuring clarification questions for the human-in-the-loop.
-2. **Agent Orchestrator / Kernel:** The central state manager and task router. **LangGraph** is the primary choice here due to its explicit state management, ability to define nodes for each agent/step, and native support for managing cycles and conditional routing, perfectly matching the iterative nature of software development. Alternatively, **AutoGen** or **CrewAI** could serve this role, with workflow defined via agent conversations or task sequences. For the prototype, focusing on **LangGraph** provides a clear path for the required complex state transitions and feedback loops.
-3. **Knowledge Base (Vector DB / RAG):** Manages all project-related information, standards, best practices, etc. **LlamaIndex** is the core library used here to build indices over various data sources and enable agents to perform sophisticated RAG queries. It will interface with a scalable Vector Database (**Qdrant, Chroma, Pinecone**; start with Chroma or a simple local vector store like FAISS for prototype, move to scalable options for enterprise).
-4. **Tool Repository & Execution Environment:** Provides agents access to external tools (compilers, VCS, test runners, databases, SAST tools, Airflow client). Agents interact with these tools primarily using the LLM's native **Function Calling / Tool Use** capabilities. This interaction is standardized by an **MCP layer** (Model Context Protocol), which translates the agent's high-level tool request into the specific API calls or commands. **Taskweaver** is a strong candidate for implementing this layer, providing a robust execution environment for agent tool use. This ensures secure, reliable, and consistent tool access.
-5. **Output Delivery Module:** Packages final artifacts based on validation status tracked by the Orchestrator.
+* `call_llm.py`:
+  * `call_llm(messages: list, model: str = "gpt-4o", temperature: float = 0.2) -> str`: Wrapper for OpenAI API.
+* `tools.py`:
+  * `extract_python_code(llm_output: str) -> str | None`: Extracts Python code from markdown code blocks.
+  * `code_tester_tool(code_string: str, function_name: str, test_cases: list) -> list`:
+    * Input: `test_cases` will be a list of dicts like `{"inputs": (arg1, arg2), "expected_output": val, "description": "..."}`.
+    * Output: A list of dicts like `{"test_case": ..., "status": "success/fail/error", "actual_output": ..., "message": ...}`.
+* `prompts.py`:
+  * `ARCHITECT_PROMPT_TEMPLATE` (simplified for MVP - mainly to confirm language Python)
+  * `PLANNER_CLARIFICATION_PROMPT_TEMPLATE`
+  * `PLANNER_CODEGEN_PROMPT_TEMPLATE`
+  * `DEVELOPER_CODEGEN_PROMPT_TEMPLATE` (for initial generation and refinement)
+  * `TEST_CASE_DESIGNER_PROMPT_TEMPLATE`
+  * `CRITIQUE_PROMPT_TEMPLATE`
+  * `VALIDATION_PROMPT_TEMPLATE` (basic checks, e.g., function signature, docstrings)
 
-### IV. The Agent Swarm: Roles Implemented within a MAS Framework
+**4. Node Design (`nodes.py`)**
 
-The specialized agents are implemented as distinct entities or nodes within the chosen MAS framework (e.g., LangGraph nodes/agents, AutoGen agents, CrewAI members). Their roles remain:
+* **`InitialRequestNode(Node)`:**
+  * `prep`: Gets `user_raw_request` from `shared`.
+  * `exec`: (No LLM, just passes through for now or simple validation).
+  * `post`: Stores `initial_user_request` in `shared`. Returns "default".
+* **`ArchitectPlannerNode(Node)`:** (Combines Architect and Planner for simplicity)
+  * `prep`: Gets `current_request` (either initial or clarified), `architectural_principles_context`, `planning_guidelines_context`, `iteration_count` from `shared`.
+  * `exec`:
+        1. (Architect part) LLM call using `ARCHITECT_PROMPT_TEMPLATE` to confirm Python, standard lib.
+        2. (Planner part) LLM call. If request clear: `PLANNER_CODEGEN_PROMPT_TEMPLATE` -> `planned_task_description` (function name, params, return type, behavior), `planner_notes`.
+        3. If request ambiguous: `PLANNER_CLARIFICATION_PROMPT_TEMPLATE` -> `clarification_questions_for_user`.
+  * `post`: Updates `shared` with `architectural_decision`, `planned_task_description`, `planner_notes`, `clarification_questions_for_user`. Increments `planner_iteration_count`. Returns "clarification_needed" or "plan_ready_for_code".
+* **`DeveloperNode(Node)`:**
+  * `prep`: Gets `planned_task_description`, `planner_notes`, `coding_standards_context`, `critique_feedback` (if in refinement loop) from `shared`.
+  * `exec`: LLM call using `DEVELOPER_CODEGEN_PROMPT_TEMPLATE`. `extract_python_code()`.
+  * `post`: Stores `generated_code` in `shared`. Increments `refinement_count`. Returns "code_ready_for_tests".
+* **`TestCaseDesignerNode(Node)`:**
+  * `prep`: Gets `planned_task_description`, `planner_notes`.
+  * `exec`: LLM call using `TEST_CASE_DESIGNER_PROMPT_TEMPLATE` to generate a list of test case dicts.
+  * `post`: Stores `generated_test_cases` in `shared`. Returns "tests_ready".
+* **`QANode(Node)`:**
+  * `prep`: Gets `generated_code`, `generated_test_cases`, `current_test_idx` from `shared`.
+  * `exec`: Calls `code_tester_tool()` for `generated_test_cases[current_test_idx]`.
+  * `post`: Appends `test_result` to `shared.test_results_summary`. Increments `current_test_idx`. Returns "run_next_test" or "all_tests_run".
+* **`ValidationNode(Node)`:**
+  * `prep`: Gets `generated_code`, `planned_task_description`, `validation_rules_context`.
+  * `exec`: LLM call using `VALIDATION_PROMPT_TEMPLATE`.
+  * `post`: Stores `validation_status`, `validation_issues` in `shared`. Returns "validation_done".
+* **`CritiqueNode(Node)`:** (If tests fail or validation fails or user rejects)
+  * `prep`: Gets `planned_task_description`, `generated_code`, `test_results_summary`, `validation_issues`, `user_rejection_reason`, `debugging_tips_context` from `shared`.
+  * `exec`: LLM call using `CRITIQUE_PROMPT_TEMPLATE`.
+  * `post`: Stores `critique_feedback` in `shared`. Appends to `feedback_history`. Returns "refine_code".
+* **`PackageNode(Node)`:** (If approved)
+  * `prep`: Gets `generated_code`, `planned_task_description`.
+  * `exec`: (Simple formatting for display). Creates `packaged_artifacts_info`.
+  * `post`: Stores `packaged_artifacts_info`, `handoff_summary` in `shared`. Returns "done".
 
-* **Requirements Analyst Agent:** Implemented as a framework agent. Uses LLMs via the framework and RAG via LlamaIndex to parse requirements.
-* **Architect Agent:** Implemented as a framework agent. Receives structured requirements, uses LLMs and Knowledge Base (LlamaIndex/RAG) to design.
-* **Project Manager Agent:** Implemented as a framework agent or potentially as part of the **LangGraph Orchestrator's** logic, defining the graph structure and transitions.
-* **Scala Spark Developer Agent(s):** Framework agents. Write code using LLMs, access Knowledge Base (LlamaIndex/RAG) for standards, interact with compilers, build tools, and VCS via **Function Calling/Tool Use** and the **MCP/Taskweaver** layer.
-* **Airflow DAG Developer Agent(s):** Framework agents. Write Python code, interact with Airflow validation tools via **Function Calling/Tool Use** and **MCP/Taskweaver**.
-* **Data Quality/Contract Agent:** Framework agent. Defines rules and contracts, potentially generating validation code or configurations, using Knowledge Base (LlamaIndex/RAG) for data standards.
-* **QA Agent:** Framework agent. Designs/executes tests, interacts with testing frameworks and data quality validation tools via **Function Calling/Tool Use** and **MCP/Taskweaver**. Reports results back to the Orchestrator state.
-* **Security Agent:** Framework agent. Interacts with SAST tools and vulnerability scanners via **Function Calling/Tool Use** and **MCP/Taskweaver**.
-* **Compliance Agent:** Framework agent. Uses Knowledge Base (LlamaIndex/RAG) for policy checks, interacts with relevant tools if needed.
-* **Refinement/Critique Agent:** Framework agent. Reviews outputs, provides feedback routed by the Orchestrator, potentially triggering cycles in the LangGraph workflow.
+**Shared Store Design (`st.session_state` will act as this):**
 
-### V. Agent Collaboration, Orchestration, and Communication: Framed by LangGraph and Function Calling
+```python
+{
+    "user_raw_request": str,
+    "current_request_for_planner": str, # Can be initial or clarified
+    "architectural_decision": { "chosen_language": "python", "framework_hint": "standard_library", "high_level_notes": str },
+    "planner_iteration_count": int,
+    "max_planner_iterations": int,
+    "clarification_questions_for_user": list[str] | None,
+    "planned_task_description": str | None, # Specific details for the function
+    "planner_notes": str | None,
+    "generated_code": str | None,
+    "generated_test_cases": list[dict] | None, # [{'inputs': (1,2), 'expected_output': 3, 'description':'...'}, ...]
+    "current_test_case_index": int,
+    "test_results_summary": list[dict], # [{'test_case':..., 'status':'success', 'actual_output':..., 'message':...}, ...]
+    "all_tests_passed": bool,
+    "validation_status": "pass" | "fail" | "error" | None,
+    "validation_issues": list[str] | None,
+    "user_rejection_reason": str | None,
+    "critique_feedback": str | None,
+    "feedback_history": list[str], # History of critiques
+    "refinement_count": int,
+    "max_refinements": int,
+    "packaged_artifacts_info": dict | None, # e.g., {"code_file_path": "...", "readme": "..."}
+    "handoff_summary": str | None,
+    "current_error_message": str | None, # For displaying errors in UI
+    # RAG Contexts (loaded once or on demand)
+    "architectural_principles_context": str,
+    "planning_guidelines_context": str,
+    "coding_standards_context": str,
+    "validation_rules_context": str,
+    "debugging_tips_context": str
+}
+```
 
-Effective collaboration is now explicitly handled by the chosen framework(s).
+**5. Streamlit UI (`app.py`)**
 
-**A. Orchestration:** **LangGraph** is central. The entire development workflow, including iterative loops (Code -> Test -> Fix -> Retest), is modeled as a state graph. The Orchestrator manages the state of the process and determines which agent/node executes next based on the current state and the results of the previous step (e.g., if `test_results == "failed"`, transition to `Developer_Agent`). This provides a robust, visible, and controllable workflow.
+* Main display area for current status, code, test results.
+* Input area for initial request / clarifications / rejection reasons.
+* Buttons for "Submit", "Send Clarification", "Approve", "Reject", "Start Over".
+* The UI will manage `st.session_state.current_ui_stage` (e.g., "INPUT_REQUIREMENTS", "AWAITING_CLARIFICATION", "AWAITING_REVIEW", "COMPLETED", "FAILED").
+* Based on `current_ui_stage`, it will render appropriate inputs/outputs and buttons.
+* Button clicks will update `st.session_state` and then call the relevant PocketFlow execution logic.
 
-**B. Communication:**
+**Directory Structure:**
 
-* **Agent-to-Agent (A2A):** Within the chosen framework, A2A communication is managed via state updates in **LangGraph** (passing outputs from one node to the next), or via explicit message passing/conversation protocols if using **AutoGen** or **CrewAI** for specific sub-sections of the workflow.
-* **Model Context Protocol (MCP):** This is the conceptual layer for **Tool Use**. Agents, powered by LLMs, use their native **Function Calling / Tool Use** capability to express intent to use a tool (e.g., "compile this code", "run this test"). The underlying **MCP layer / Taskweaver execution environment** receives these requests, translates them into specific tool commands or API calls, executes them, and returns the structured results back to the agent via the Function Calling response mechanism. This standardizes how *any* agent requests *any* tool execution.
+```text
+pocketflow_sft_dev_app/
+├── app.py                     # Streamlit UI and main logic
+├── nodes.py                   # PocketFlow Node definitions
+├── flow.py                    # PocketFlow Flow definitions
+├── utils/
+│   ├── __init__.py
+│   ├── call_llm.py
+│   ├── tools.py
+│   └── prompts.py
+├── rag_contexts/              # Simple text files for RAG content
+│   ├── architectural_principles.txt
+│   ├── planning_guidelines.txt
+│   ├── coding_standards.txt
+│   ├── validation_rules.txt
+│   └── debugging_tips.txt
+├── output_artifacts/          # (Optional) For saving final generated code
+├── requirements.txt
+└── README.md
+```
 
-### VI. Ensuring Software Quality: Automated Validation, Verification, and Framework Integration
+This design simplifies the complex SDLC into manageable parts suitable for a "simple app" while demonstrating PocketFlow's capabilities, GUI integration, and HITL.
+The RAG contexts will be simple strings loaded from files for this version, rather than a full LlamaIndex setup, to keep the initial implementation focused.
+I will start with this simplified design and we can iterate.
 
-Automated quality assurance is integrated into the LangGraph workflow.
+Do you approve this design?This is a comprehensive and well-thought-out design! It balances the complexity of an SDLC process with the need for a "simple app" demonstration, leveraging PocketFlow for the core logic and Streamlit for the GUI and HITL interactions.
 
-* **Testing:** QA Agents execute tests. Test results update the **LangGraph** state, determining if the workflow proceeds or cycles back for refinement.
-* **Data Quality:** Data Quality rules, defined by the Data Quality/Contract Agent, are checked using specific tools accessed via **Function Calling/Tool Use** and **MCP/Taskweaver**. Results influence the workflow state.
-* **Security & Compliance:** Scans by Security/Compliance Agents using tools accessed via **Function Calling/Tool Use** update the workflow state.
-* **Iterative Refinement:** **LangGraph's** cycles explicitly manage the feedback loops triggered by failed tests, quality checks, or security scans, routing tasks back to the relevant agents.
+I approve this design. Let's proceed with the implementation.
 
-### VII. Managing the Autonomous System: Governance, Security, Cost, and 12-Factor Principles
+I'm particularly happy with:
 
-Operating the system requires careful management, guided by principles for scalable applications.
-
-* **Governance:** The **LangGraph Orchestrator** provides visibility into the workflow state and history.
-* **Security:** Secure **Function Calling / Tool Use** is paramount. The **MCP/Taskweaver** layer executes tools in sandboxed environments (like Docker containers). Granular permissions for tool access are enforced at the **MCP/Taskweaver** level. Security Agents proactively scan code. Adhering to **12-Factor Agent principles** helps ensure secure configuration management.
-* **Cost Optimization:** The hybrid LLM strategy is maintained. Choosing cost-effective LLMs for simpler tasks within the framework is key. **12-Factor Agent principles** like treating backing services (including LLMs) as attached resources and optimizing resource consumption per agent contribute to cost efficiency.
-* **Scalability:** The design leverages components designed for scale: scalable Vector DBs (e.g., Pinecone), cloud LLMs, and containerization (Docker/Kubernetes) for deploying agents and the Tool Repository. Building agents following **12-Factor Agent principles** (e.g., statelessness where possible, externalized configuration) is essential for horizontal scaling.
-
-### VIII. Implementation Considerations: Prototype to Enterprise Scale
-
-* **Hybrid LLM Strategy:** Continue to leverage different LLMs. The chosen framework (LangChain/LangGraph, AutoGen, CrewAI) should allow easy swapping of LLM providers/models per agent or task.
-  * *Cheap Local LLMs:* For parsing, boilerplate, simple checks. Run within Docker containers alongside the framework.
-  * *Cloud LLMs (Gemini 2.5 Pro, etc.):* For complex reasoning, code generation, ambiguity resolution. Accessed remotely by agents via the framework and LLM provider SDKs.
-  * *Specialized Tools:* GitHub Copilot or similar coding assistants can be integrated as specific tools accessible via the **MCP/Taskweaver** layer for Developer Agents.
-* **Local Docker Prototype:** A rapid prototype can run entirely in Docker containers:
-  * **LangGraph Orchestrator:** Running the workflow definition.
-  * **LlamaIndex & Vector DB (Chroma/FAISS):** For the Knowledge Base.
-  * **Local Tool Mocks / Instances:** Containerized compilers (Scala, Python), a local VCS instance, mock data sources, basic test runners. This is where the **MCP/Taskweaver** layer would manage execution within Docker.
-  * **Local/Quantized LLMs:** Running in containers for basic agent tasks.
-  * Cloud LLMs accessed remotely for complex steps.
-    This allows end-to-end testing of the framework, agent interactions, and tool use flow locally.
-* **Human-in-the-Loop:** Remains a critical initial phase. The **Requirements Analyst Agent**, built within the framework, explicitly manages this loop, presenting structured clarification requests generated based on LLM interpretation and RAG results.
-* **Enterprise Scaling:** Transition from local Vector DB to managed services (Pinecone, etc.). Deploy agents, Orchestrator, and Tool Repository (**MCP/Taskweaver**) to container orchestration platforms (Kubernetes). Ensure agents adhere to **12-Factor Agent principles** for statelessness and scalability. Enhance monitoring and logging within the framework.
-
-### IX. Conclusion: A Framework-Driven Path to Autonomous Data Pipelines
-
-By explicitly incorporating leading open-source frameworks and concepts like **LangGraph** for orchestration, **LlamaIndex** for knowledge management (RAG), **LLM Function Calling / Taskweaver** for tool interaction (MCP), and designing agents based on **12-Factor Agent principles**, the Autonomous Data Pipeline Factory design is significantly strengthened. This approach provides a clear, actionable path for building a simple end-to-end prototype in Docker, while laying the necessary architectural groundwork for scaling to meet complex enterprise demands. The human role is strategically placed, enabling rapid iteration and refinement of the autonomous capabilities. This updated blueprint offers a robust foundation for collaborative "vibe coding" and iterative development.
+* The clear breakdown of UI stages and how PocketFlow execution will be triggered within them.
+* The simplified agent roles into more focused PocketFlow nodes.
+* The use of `st.session_state` as the `shared` store for PocketFlow – this is a clean integration.
+* The explicit definition of prompt templates and utility functions.
+* The planned directory structure.
