@@ -1,12 +1,11 @@
-# Dockerfile
 # Use an official Python runtime as a parent image
-FROM python:3.11-slim
+FROM python:3.13-slim-bookworm
 
 # Set environment variables
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
-# OPENAI_API_KEY will be passed at runtime using -e or Docker Compose environment section
+# OPENAI_API_KEY will be passed at runtime using .env file
 # ENV OPENAI_API_KEY="your_openai_api_key_here" # DO NOT HARDCODE HERE - pass at runtime
 
 # Default LLM models (can be overridden at runtime via -e)
@@ -26,6 +25,8 @@ ENV STREAMLIT_SERVER_PORT=8501
 ENV STREAMLIT_SERVER_HEADLESS=true
 ENV STREAMLIT_SERVER_ENABLE_CORS=false
 ENV STREAMLIT_LOGGER_LEVEL=info
+ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+ENV STREAMLIT_SERVER_RUN_ON_SAVE=true
 
 # Set the working directory in the container
 WORKDIR /app
@@ -33,18 +34,17 @@ WORKDIR /app
 # Copy requirements.txt first to leverage Docker cache
 COPY requirements.txt .
 
-# Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies and development tools
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir watchdog[watchmedo]
 
-# Copy the rest of the application code into the container
-COPY . .
-
-# Create the database directory (Streamlit will run as root by default, so it can write here)
-# The init_db() function in database.py will create the actual file if it doesn't exist.
+# Create the database directory
 RUN mkdir -p /app/database
+
+# No COPY command here - we'll use volume mounting instead
 
 # Expose the port Streamlit will run on
 EXPOSE 8501
 
 # Command to run the Streamlit application
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.runOnSave=true"]

@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.pdb
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+*.log
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# macOS
+.DS_Store
+
+# dotenv
+.env
+
+# VSCode
+.vscode/
+
+# Streamlit cache
+.streamlit/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Database
+*.sqlite3
+database/
+
+# Output artifacts
+output_artifacts/
+
+# Test coverage
+.coverage
+htmlcov/
+.coverage.*
+
+# Misc
+*.bak
+*.swp
+*.tmp
+
+# Ignore secrets
+secrets.json

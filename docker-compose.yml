@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PYTHONPATH=/app
+    volumes:
+      - .:/app
+      - /app/database # Persist the database directory
+    command: [ "streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.runOnSave=true" ]

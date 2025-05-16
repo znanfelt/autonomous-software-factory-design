@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 import sys
+from typing import Dict, Any
 
 # Ensure the package is discoverable
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -30,6 +31,9 @@ from utils.prompts import (
     TEST_CASE_DESIGNER_PROMPT_TEMPLATE, VALIDATION_PROMPT_TEMPLATE,
     CRITIQUE_PROMPT_TEMPLATE
 )
+
+# Ensure the Node class is imported or defined
+# from some_module import Node  # Replace 'some_module' with the actual module name where Node is defined
 
 # --- Logger Configuration ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
@@ -256,7 +260,8 @@ if st.session_state.ui_stage == "INPUT_REQUIREMENTS":
                     "architectural_principles_context": st.session_state.architectural_principles_context,
                     "planning_guidelines_context": st.session_state.planning_guidelines_context,
                     "planner_iteration_count": 0, # Reset for new task
-                    "llm_models_config": LLM_MODELS_CONFIG
+                    "llm_models_config": LLM_MODELS_CONFIG,
+                    "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
                 }
                 
                 with st.spinner("Architect & Planner are thinking..."):
@@ -281,7 +286,7 @@ if st.session_state.ui_stage == "INPUT_REQUIREMENTS":
                             update_task_field(task_id, "status", "planning_error")
                     except Exception as e:
                         logger.error(f"Error during elicitation flow: {e}", exc_info=True)
-                        st.session_state.current_error_message = f"Critical error in planning: {e}"
+                        st.session_state.current_error_message = f"Critical error in planning: {e.__str__()}"
                         update_task_field(task_id, "current_error_message", st.session_state.current_error_message)
                         update_task_field(task_id, "status", "planning_error")
                 st.rerun()
@@ -321,7 +326,8 @@ elif st.session_state.ui_stage == "CLARIFICATION":
                 "architectural_principles_context": st.session_state.architectural_principles_context,
                 "planning_guidelines_context": st.session_state.planning_guidelines_context,
                 "planner_iteration_count": st.session_state.planner_iteration_count,
-                "llm_models_config": LLM_MODELS_CONFIG
+                "llm_models_config": LLM_MODELS_CONFIG,
+                "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
             }
             with st.spinner("Planner is re-evaluating with your clarifications..."):
                 try:
@@ -363,7 +369,8 @@ elif st.session_state.ui_stage == "TEST_GENERATION":
         # For QA node later
         "test_results_summary": [],
         "all_tests_passed": False,
-        "current_test_case_index": 0
+        "current_test_case_index": 0,
+        "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
     }
 
     with st.spinner("Designing test cases and writing initial code..."):
@@ -493,7 +500,8 @@ elif st.session_state.ui_stage == "CRITIQUE_AND_REFINE":
         "debugging_tips_context": st.session_state.debugging_tips_context,
         "feedback_history": st.session_state.feedback_history, # Pass current history
         "refinement_count": st.session_state.refinement_count, # Pass current count
-        "llm_models_config": LLM_MODELS_CONFIG
+        "llm_models_config": LLM_MODELS_CONFIG,
+        "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
     }
     
     with st.spinner("AI agents are collaborating on a revision..."):
@@ -536,7 +544,8 @@ elif st.session_state.ui_stage == "TEST_GENERATION_REFINED":
         "task_description": st.session_state.task_description, # For validation
         "planner_notes": st.session_state.planner_notes, # For validation
         "validation_rules_context": st.session_state.validation_rules_context,
-        "llm_models_config": LLM_MODELS_CONFIG
+        "llm_models_config": LLM_MODELS_CONFIG,
+        "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
     }
     
     with st.spinner(f"Re-testing and validating code (Attempt {st.session_state.refinement_count})..."):
@@ -594,7 +603,8 @@ elif st.session_state.ui_stage == "COMPLETED":
     
     shared_for_flow = {
         "generated_code": st.session_state.generated_code,
-        "planned_task_description": st.session_state.planned_task_description
+        "planned_task_description": st.session_state.planned_task_description,
+        "name": st.session_state.get("name", "default_name")  # Ensure "name" is present
     }
     with st.spinner("Packaging final artifacts..."):
         try:
