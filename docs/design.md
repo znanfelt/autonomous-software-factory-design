@@ -1,218 +1,222 @@
-# Design: Simple SDLC App with PocketFlow, Streamlit GUI, and HITL
+# Design Document: Simple Autonomous Software Factory (MVP)
 
-## 1. Requirements**
+**Version:** 1.0 (Reflecting Docker & SQLite Integration)
 
-* **Goal:** Create a web application where a user can describe a simple Python function, and an AI system will attempt to generate the code, generate test cases, test it, and allow the user to review, approve, or request refinements.
-* **User Stories:**
-  * As a user, I want to input a natural language description of a Python function I need.
-  * As a user, if my initial request is ambiguous, I want the system to ask me clarifying questions.
-  * As a user, I want the system to generate Python code for my function.
-  * As a user, I want the system to generate basic test cases for the code.
-  * As a user, I want the system to run the tests and show me the results.
-  * As a user, I want to review the generated code and test results.
-  * As a user, I want to "Approve" the code if it's good, or "Reject" it and provide feedback if it needs changes.
-  * As a user, if I reject the code, I want the system to try and refine it based on my feedback (up to a few times).
-  * As a user, I want to see the final approved code or a message if the system couldn't satisfy my request after refinements.
-* **GUI:** Streamlit will be used for the user interface.
-* **HITL:** Human interaction will occur for initial requirements, clarifications, and final review/feedback.
-* **PocketFlow:** The core SDLC logic (planning, coding, testing, critiquing, refining) will be managed by PocketFlow nodes and flows.
+## 1. Requirements
 
-## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)**
+* **Goal:** Create a web application where a user can describe a simple Python function. An AI system will then attempt to autonomously generate, test, validate, and refine this function with human oversight.
+* **User Interface:** Streamlit for interactive web GUI.
+* **Workflow Orchestration:** PocketFlow to manage the sequence of AI-driven tasks.
+* **AI Capabilities:** Leverage OpenAI LLMs for planning, code generation, test case design, validation, and critique.
+* **Human-in-the-Loop (HITL):**
+  * Initial requirement input.
+  * Optional clarification phase if the initial request is ambiguous.
+  * Review and approval/rejection of the generated and tested code.
+* **Persistence:** Use SQLite to store task details, generated code versions, test cases, test results, and feedback.
+* **Deployment:** Containerize the application using Docker for portability and consistent environments.
+* **RAG Context:** Provide simple file-based contextual information (guidelines, standards) to AI agents.
 
-The application will progress through several stages, managed by `streamlit.session_state`. PocketFlow `Flow` instances will be run at different stages.
+## 2. High-Level System Flow & UI Stages
 
-* **Stage 1: Requirement Elicitation**
-  * User provides initial function description.
-  * **PocketFlow `ElicitationFlow`:** `InputNode` -> `PlannerCoderNode`
-    * `InputNode`: Gets input from UI.
-    * `PlannerCoderNode`:
-      * *If request is clear:* Plans the function (name, params, return) and generates initial code. Sets next UI stage to `TEST_GENERATION_EXECUTION`.
-      * *If request is ambiguous:* Generates clarification questions. Sets next UI stage to `CLARIFICATION`.
-* **Stage 2: Clarification (HITL)**
-  * UI displays clarification questions. User provides more details.
-  * **PocketFlow `ElicitationFlow` (re-run):** `InputNode` (with refined request) -> `PlannerCoderNode`.
-    * Loop until `PlannerCoderNode` deems the request clear.
-* **Stage 3: Test Generation & Execution**
-  * **PocketFlow `TestAndReviewFlow`:** `TestDesignerExecutorNode`
-    * `TestDesignerExecutorNode`: Generates test cases (e.g., 2-3 simple ones) based on the plan, then executes them against the generated code.
-    * Sets next UI stage to `HUMAN_REVIEW`.
-* **Stage 4: Human Review (HITL)**
-  * UI displays generated code, test results, and validation notes.
-  * User clicks "Approve" or "Reject" (can add a text box for rejection reason).
-  * If "Approve": Sets next UI stage to `COMPLETED`.
-  * If "Reject": Sets next UI stage to `CRITIQUE_AND_REFINE`.
-* **Stage 5: Critique & Refine (Loop)**
-  * **PocketFlow `RefinementFlow`:** `CritiqueNode` -> `PlannerCoderNode` (in refine mode)
-    * `CritiqueNode`: Takes rejection reason/test failures, generates critique for `PlannerCoderNode`.
-    * `PlannerCoderNode`: Attempts to generate revised code based on critique.
-  * Loop back to Stage 3 (`TEST_GENERATION_EXECUTION`) with refined code.
-  * Limit refinement loops (e.g., max 3 refinements). If exceeded, set UI stage to `MAX_REFINEMENTS_FAILED`.
-* **Stage 6: Completed / Failed**
-  * `COMPLETED`: **PocketFlow `PackagingFlow`:** `PackageNode` (displays final code and success message).
-  * `MAX_REFINEMENTS_FAILED`: Display failure message.
+The application progresses through distinct UI stages, managed by `streamlit.session_state.ui_stage`. PocketFlow flows are invoked at specific stages to perform AI-driven tasks.
 
-**Simplified Flow Diagram for PocketFlow Segments:**
+1. **`INPUT_REQUIREMENTS` (UI Stage):**
+    * User inputs a natural language description of the Python function.
+    * **Action:** `Submit` button triggers the `ElicitationFlow`.
+    * **PocketFlow `ElicitationFlow`:**
+        * `InitialRequestNode`: Captures input.
+        * `ArchitectPlannerNode`:
+            * Architect part: Confirms Python, standard library (MVP constraint).
+            * Planner part:
+                * If request is clear: Generates `planned_task_description` (function signature, behavior) and `planner_notes`. Transitions UI to `TEST_GENERATION`.
+                * If request is ambiguous: Generates `clarification_questions_for_user`. Transitions UI to `CLARIFICATION`.
+    * *DB Interaction:* New task created. Architectural decision and planner output/questions saved.
 
-* **Elicitation & Initial Code Gen Flow:**
+2. **`CLARIFICATION` (UI Stage - HITL):**
+    * Displays questions from `ArchitectPlannerNode`. User provides answers.
+    * **Action:** `Submit Clarifications` button re-triggers the `ArchitectPlannerNode` (within `ElicitationFlow`) with the refined request.
+    * Loop until `plan_ready_for_code` or `max_planner_iterations` reached. If max iterations, UI to `FAILED_PLANNING`.
+    * *DB Interaction:* User clarifications logged (e.g., as feedback). Task planner fields updated.
+
+3. **`TEST_GENERATION` (UI Stage):**
+    * System indicates it's generating tests and initial code.
+    * **PocketFlow `TestAndInitialCodeFlow` (conceptual grouping, runs sequentially):**
+        * `TestCaseDesignerNode`: Generates `generated_test_cases` based on `planned_task_description`.
+        * `DeveloperNode`: Generates initial `generated_code` based on `planned_task_description` and `planner_notes`.
+        * Transitions UI to `QA_EXECUTION`.
+    * *DB Interaction:* Generated test cases and initial code version saved.
+
+4. **`QA_EXECUTION` (UI Stage):**
+    * System indicates it's running tests and validation.
+    * **PocketFlow `QAValidationFlow` (conceptual grouping):**
+        * `QANode`: Iteratively runs each test case from `generated_test_cases` against `generated_code` using `code_tester_tool`. Stores `test_results_summary` and `all_tests_passed`.
+        * `ValidationNode`: Validates `generated_code` against `validation_rules_context`. Stores `validation_status` and `validation_issues`.
+        * Transitions UI to `HUMAN_REVIEW`.
+    * *DB Interaction:* Test run results and validation logs saved.
+
+5. **`HUMAN_REVIEW` (UI Stage - HITL):**
+    * Displays `generated_code`, `test_results_summary`, and `validation_issues`.
+    * **Actions:**
+        * `Approve Code`: If `all_tests_passed` is true and `validation_status` is "pass". Transitions UI to `COMPLETED`.
+        * `Reject & Refine`: Transitions UI to `PROVIDE_REJECTION_FEEDBACK`.
+    * *DB Interaction:* User approval/rejection intent can be logged.
+
+6. **`PROVIDE_REJECTION_FEEDBACK` (UI Stage - HITL):**
+    * User provides `user_rejection_reason`.
+    * **Action:** `Submit Feedback & Retry` button. Transitions UI to `CRITIQUE_AND_REFINE`.
+    * *DB Interaction:* User rejection reason logged as feedback.
+
+7. **`CRITIQUE_AND_REFINE` (UI Stage):**
+    * System indicates AI is critiquing and refining.
+    * **PocketFlow `RefinementFlow`:**
+        * `CritiqueNode`: Generates `critique_feedback` based on test failures, validation issues, and user rejection reason.
+        * `DeveloperNode` (refine mode): Takes `critique_feedback` and previous `generated_code` to produce new `generated_code`. Increments `refinement_count`.
+    * If `refinement_count` < `max_refinements`: Transitions UI back to `QA_EXECUTION` (to test the new code).
+    * If `refinement_count` >= `max_refinements`: Transitions UI to `MAX_REFINEMENTS_FAILED`.
+    * *DB Interaction:* AI critique logged as feedback. New code version saved. Refinement count updated.
+
+8. **`COMPLETED` (UI Stage):**
+    * **PocketFlow `PackagingFlow`:**
+        * `PackageNode`: Generates `packaged_artifacts_info` and `handoff_summary`.
+    * Displays success message and packaged info.
+    * *DB Interaction:* Packaged artifacts info saved. Task status set to 'completed'.
+
+9. **`FAILED_PLANNING` / `MAX_REFINEMENTS_FAILED` (UI Stages):**
+    * Displays appropriate failure message.
+    * *DB Interaction:* Task status updated to 'failed'.
+
+**Flow Diagrams (PocketFlow Segments):**
+
+* **Elicitation & Initial Planning Flow (`elicitation_flow`):**
 
     ```text
-    (User Input via UI) -> InputNode -> PlannerCoderNode -> (Code/Plan OR Clarification Questions)
+    InitialRequestNode -> ArchitectPlannerNode
     ```
 
-* **Testing Flow:**
+    (ArchitectPlannerNode internally decides if clarification is needed, UI handles the loop)
+
+* **Test Design, Initial Code Gen, QA, Validation (`testing_flow_segment` - triggered after planning):**
 
     ```text
-    (Code/Plan from PlannerCoderNode) -> TestDesignerExecutorNode -> (Test Results)
+    TestCaseDesignerNode -> DeveloperNode ("code_ready_for_tests") -> QANode ("run_next_test" loop) -> QANode ("testing_error_or_done") -> ValidationNode
+    DeveloperNode ("code_generation_failed") -> CritiqueNode (This path bypasses QA/Validation if dev fails outright) 
     ```
 
-* **Refinement Flow (if review rejected):**
+* **Refinement Cycle Flow (`refinement_flow_segment` - triggered after rejection):**
 
     ```text
-    (Rejection Reason/Test Failures, Old Code/Plan) -> CritiqueNode -> PlannerCoderNode (refine mode) -> (New Code)
+    CritiqueNode ("refine_code") -> DeveloperNode 
     ```
 
-* **Packaging Flow (if review approved):**
+    (DeveloperNode then goes back to `QA_EXECUTION` stage via UI logic)
+
+* **Packaging Flow (`packaging_flow` - triggered after approval):**
 
     ```text
-    (Approved Code) -> PackageNode -> (Display Final Output)
+    PackageNode
     ```
 
-**3. Utility Functions (`utils/`)**
+## 3. Utility Functions (`utils/`)
 
-* `call_llm.py`:
-  * `call_llm(messages: list, model: str = "gpt-4o", temperature: float = 0.2) -> str`: Wrapper for OpenAI API.
-* `tools.py`:
-  * `extract_python_code(llm_output: str) -> str | None`: Extracts Python code from markdown code blocks.
-  * `code_tester_tool(code_string: str, function_name: str, test_cases: list) -> list`:
-    * Input: `test_cases` will be a list of dicts like `{"inputs": (arg1, arg2), "expected_output": val, "description": "..."}`.
-    * Output: A list of dicts like `{"test_case": ..., "status": "success/fail/error", "actual_output": ..., "message": ...}`.
-* `prompts.py`:
-  * `ARCHITECT_PROMPT_TEMPLATE` (simplified for MVP - mainly to confirm language Python)
+* **`call_llm.py`**:
+  * `call_llm(messages: list, model: str, temperature: float)`: OpenAI API wrapper. Returns JSON string or error dict.
+* **`tools.py`**:
+  * `extract_python_code(llm_output: str) -> str | None`: Extracts Python code from markdown.
+  * `code_tester_tool(code_string: str, function_name: str, test_cases: list[dict]) -> list[dict]`: Executes code against test cases.
+* **`prompts.py`**: Contains all LLM prompt templates as constants.
+  * `ARCHITECT_PROMPT_TEMPLATE`
   * `PLANNER_CLARIFICATION_PROMPT_TEMPLATE`
   * `PLANNER_CODEGEN_PROMPT_TEMPLATE`
-  * `DEVELOPER_CODEGEN_PROMPT_TEMPLATE` (for initial generation and refinement)
+  * `DEVELOPER_CODEGEN_PROMPT_TEMPLATE`
   * `TEST_CASE_DESIGNER_PROMPT_TEMPLATE`
+  * `VALIDATION_PROMPT_TEMPLATE`
   * `CRITIQUE_PROMPT_TEMPLATE`
-  * `VALIDATION_PROMPT_TEMPLATE` (basic checks, e.g., function signature, docstrings)
+* **`database.py`**: SQLite interaction functions.
+  * `DB_FILE`: Path to the database.
+  * `create_connection()`: Returns `sqlite3.Connection`.
+  * `init_db()`: Creates tables if they don't exist.
+  * `execute_query(query, params, fetch_one, fetch_all, last_row_id)`: General query executor.
+  * CRUD functions for `tasks`, `code_versions`, `test_cases_generated` (optional if tests are part of task state), `test_run_results`, `validation_logs`, `feedback_logs`, `packaged_artifacts`.
 
-**4. Node Design (`nodes.py`)**
+## 4. Node Design (`nodes.py`)
 
-* **`InitialRequestNode(Node)`:**
-  * `prep`: Gets `user_raw_request` from `shared`.
-  * `exec`: (No LLM, just passes through for now or simple validation).
-  * `post`: Stores `initial_user_request` in `shared`. Returns "default".
-* **`ArchitectPlannerNode(Node)`:** (Combines Architect and Planner for simplicity)
-  * `prep`: Gets `current_request` (either initial or clarified), `architectural_principles_context`, `planning_guidelines_context`, `iteration_count` from `shared`.
-  * `exec`:
-        1. (Architect part) LLM call using `ARCHITECT_PROMPT_TEMPLATE` to confirm Python, standard lib.
-        2. (Planner part) LLM call. If request clear: `PLANNER_CODEGEN_PROMPT_TEMPLATE` -> `planned_task_description` (function name, params, return type, behavior), `planner_notes`.
-        3. If request ambiguous: `PLANNER_CLARIFICATION_PROMPT_TEMPLATE` -> `clarification_questions_for_user`.
-  * `post`: Updates `shared` with `architectural_decision`, `planned_task_description`, `planner_notes`, `clarification_questions_for_user`. Increments `planner_iteration_count`. Returns "clarification_needed" or "plan_ready_for_code".
-* **`DeveloperNode(Node)`:**
-  * `prep`: Gets `planned_task_description`, `planner_notes`, `coding_standards_context`, `critique_feedback` (if in refinement loop) from `shared`.
-  * `exec`: LLM call using `DEVELOPER_CODEGEN_PROMPT_TEMPLATE`. `extract_python_code()`.
-  * `post`: Stores `generated_code` in `shared`. Increments `refinement_count`. Returns "code_ready_for_tests".
-* **`TestCaseDesignerNode(Node)`:**
-  * `prep`: Gets `planned_task_description`, `planner_notes`.
-  * `exec`: LLM call using `TEST_CASE_DESIGNER_PROMPT_TEMPLATE` to generate a list of test case dicts.
-  * `post`: Stores `generated_test_cases` in `shared`. Returns "tests_ready".
-* **`QANode(Node)`:**
-  * `prep`: Gets `generated_code`, `generated_test_cases`, `current_test_idx` from `shared`.
-  * `exec`: Calls `code_tester_tool()` for `generated_test_cases[current_test_idx]`.
-  * `post`: Appends `test_result` to `shared.test_results_summary`. Increments `current_test_idx`. Returns "run_next_test" or "all_tests_run".
-* **`ValidationNode(Node)`:**
-  * `prep`: Gets `generated_code`, `planned_task_description`, `validation_rules_context`.
-  * `exec`: LLM call using `VALIDATION_PROMPT_TEMPLATE`.
-  * `post`: Stores `validation_status`, `validation_issues` in `shared`. Returns "validation_done".
-* **`CritiqueNode(Node)`:** (If tests fail or validation fails or user rejects)
-  * `prep`: Gets `planned_task_description`, `generated_code`, `test_results_summary`, `validation_issues`, `user_rejection_reason`, `debugging_tips_context` from `shared`.
-  * `exec`: LLM call using `CRITIQUE_PROMPT_TEMPLATE`.
-  * `post`: Stores `critique_feedback` in `shared`. Appends to `feedback_history`. Returns "refine_code".
-* **`PackageNode(Node)`:** (If approved)
-  * `prep`: Gets `generated_code`, `planned_task_description`.
-  * `exec`: (Simple formatting for display). Creates `packaged_artifacts_info`.
-  * `post`: Stores `packaged_artifacts_info`, `handoff_summary` in `shared`. Returns "done".
+(Detailed descriptions for each node as provided in the previous iteration, focusing on their `prep`, `exec`, and `post` methods and interaction with the `shared` state passed by `app.py`.)
 
-**Shared Store Design (`st.session_state` will act as this):**
+* **`InitialRequestNode`**: Captures raw user request.
+* **`ArchitectPlannerNode`**: High-level tech decisions (Python for MVP) + detailed function planning or clarification question generation.
+* **`DeveloperNode`**: Generates/refines Python code based on plan and feedback.
+* **`TestCaseDesignerNode`**: Generates test cases from the function plan.
+* **`QANode`**: Executes a single test case against the current code.
+* **`ValidationNode`**: Validates code against predefined rules using an LLM.
+* **`CritiqueNode`**: Generates critique based on test failures, validation issues, or user feedback.
+* **`PackageNode`**: Formats final code and creates a handoff summary.
+
+**Shared State for PocketFlow (`shared` dict passed to `flow.run()`):**
+This dictionary will be constructed by `app.py` for each PocketFlow run, populated with data from `st.session_state` and relevant RAG contexts.
 
 ```python
 {
-    "user_raw_request": str,
-    "current_request_for_planner": str, # Can be initial or clarified
-    "architectural_decision": { "chosen_language": "python", "framework_hint": "standard_library", "high_level_notes": str },
-    "planner_iteration_count": int,
-    "max_planner_iterations": int,
-    "clarification_questions_for_user": list[str] | None,
-    "planned_task_description": str | None, # Specific details for the function
-    "planner_notes": str | None,
-    "generated_code": str | None,
-    "generated_test_cases": list[dict] | None, # [{'inputs': (1,2), 'expected_output': 3, 'description':'...'}, ...]
-    "current_test_case_index": int,
-    "test_results_summary": list[dict], # [{'test_case':..., 'status':'success', 'actual_output':..., 'message':...}, ...]
-    "all_tests_passed": bool,
-    "validation_status": "pass" | "fail" | "error" | None,
-    "validation_issues": list[str] | None,
-    "user_rejection_reason": str | None,
-    "critique_feedback": str | None,
-    "feedback_history": list[str], # History of critiques
-    "refinement_count": int,
-    "max_refinements": int,
-    "packaged_artifacts_info": dict | None, # e.g., {"code_file_path": "...", "readme": "..."}
-    "handoff_summary": str | None,
-    "current_error_message": str | None, # For displaying errors in UI
-    # RAG Contexts (loaded once or on demand)
-    "architectural_principles_context": str,
-    "planning_guidelines_context": str,
-    "coding_standards_context": str,
-    "validation_rules_context": str,
-    "debugging_tips_context": str
+    # Input data for the current flow/node
+    "user_raw_request": "...",       # From InitialRequestNode
+    "current_request_for_planner": "...", # From ArchitectPlannerNode
+    "planned_task_description": {...}, # From ArchitectPlannerNode, input to DeveloperNode & TestCaseDesignerNode
+    "planner_notes": "...",          # From ArchitectPlannerNode
+    "generated_code": "...",         # From DeveloperNode, input to QANode & ValidationNode
+    "generated_test_cases": [...],   # From TestCaseDesignerNode, input to QANode
+    "current_test_case_index": 0,    # For QANode iteration
+    "test_results_summary": [...],   # Aggregated by QANode
+    "validation_issues": [...],      # From ValidationNode
+    "user_rejection_reason": "...",  # From UI, input to CritiqueNode
+    "critique_feedback": "...",      # From CritiqueNode, input to DeveloperNode for refinement
+    "feedback_history": [...],       # List of past critiques for DeveloperNode
+    "refinement_count": 0,           # Tracked for DeveloperNode
+    
+    # RAG Contexts (loaded once by app.py)
+    "architectural_principles_context": "...",
+    "planning_guidelines_context": "...",
+    "coding_standards_context": "...",
+    "validation_rules_context": "...",
+    "debugging_tips_context": "...",
+
+    # Control/Config
+    "llm_models_config": {...},
+    "max_planner_iterations": 2,
+    "max_refinements": 3,
+
+    # Output fields (populated by nodes)
+    # Note: Some of these are intermediate and might be overwritten or cleared.
+    # The final persistent state is in SQLite, managed by app.py.
+    "architectural_decision": {...},
+    "clarification_questions_for_user": [...],
+    "all_tests_passed": False,
+    "validation_status": None,
+    "packaged_artifacts_info": None,
+    "handoff_summary": None,
+    "current_error_message": None # For internal flow errors
 }
 ```
 
-**5. Streamlit UI (`app.py`)**
-
-* Main display area for current status, code, test results.
-* Input area for initial request / clarifications / rejection reasons.
-* Buttons for "Submit", "Send Clarification", "Approve", "Reject", "Start Over".
-* The UI will manage `st.session_state.current_ui_stage` (e.g., "INPUT_REQUIREMENTS", "AWAITING_CLARIFICATION", "AWAITING_REVIEW", "COMPLETED", "FAILED").
-* Based on `current_ui_stage`, it will render appropriate inputs/outputs and buttons.
-* Button clicks will update `st.session_state` and then call the relevant PocketFlow execution logic.
-
-**Directory Structure:**
-
-```text
-pocketflow_sft_dev_app/
-├── app.py                     # Streamlit UI and main logic
-├── nodes.py                   # PocketFlow Node definitions
-├── flow.py                    # PocketFlow Flow definitions
-├── utils/
-│   ├── __init__.py
-│   ├── call_llm.py
-│   ├── tools.py
-│   └── prompts.py
-├── rag_contexts/              # Simple text files for RAG content
-│   ├── architectural_principles.txt
-│   ├── planning_guidelines.txt
-│   ├── coding_standards.txt
-│   ├── validation_rules.txt
-│   └── debugging_tips.txt
-├── output_artifacts/          # (Optional) For saving final generated code
-├── requirements.txt
-└── README.md
-```
-
-This design simplifies the complex SDLC into manageable parts suitable for a "simple app" while demonstrating PocketFlow's capabilities, GUI integration, and HITL.
-The RAG contexts will be simple strings loaded from files for this version, rather than a full LlamaIndex setup, to keep the initial implementation focused.
-I will start with this simplified design and we can iterate.
-
-Do you approve this design?This is a comprehensive and well-thought-out design! It balances the complexity of an SDLC process with the need for a "simple app" demonstration, leveraging PocketFlow for the core logic and Streamlit for the GUI and HITL interactions.
-
-I approve this design. Let's proceed with the implementation.
-
-I'm particularly happy with:
-
-* The clear breakdown of UI stages and how PocketFlow execution will be triggered within them.
-* The simplified agent roles into more focused PocketFlow nodes.
-* The use of `st.session_state` as the `shared` store for PocketFlow – this is a clean integration.
-* The explicit definition of prompt templates and utility functions.
-* The planned directory structure.
+Note: The Streamlit app.py will be responsible for mapping its st.session_state (which holds the state for the active task) to this shared dictionary before calling a PocketFlow run() method, and then updating st.session_state and the SQLite DB from the shared dictionary afterwards.
+5. Streamlit UI (app.py)
+Manages st.session_state.ui_stage to control UI flow.
+On app start, calls init_db().
+Provides input fields and buttons relevant to the current ui_stage.
+On button clicks:
+Updates st.session_state (e.g., user_raw_request, user_rejection_reason).
+Constructs the shared dictionary for the appropriate PocketFlow segment.
+Calls the relevant PocketFlow flow.run(shared).
+Updates st.session_state from the shared dictionary returned by the flow.
+Persists changes to the SQLite database (e.g., updating task status, saving new code version).
+Sets the next st.session_state.ui_stage and calls st.rerun().
+Displays errors from st.session_state.current_error_message.
+6. Docker (Dockerfile)
+Base Python image (e.g., python:3.11-slim).
+Set ENV for OPENAI_API_KEY (to be passed at runtime), LLM model names, and other configurations.
+Copy requirements.txt and install dependencies.
+Copy all application files (app.py, nodes.py, flow.py, utils/, rag_contexts/).
+Create /app/database directory (SQLite DB file will be created here by database.py).
+Expose Streamlit port (8501).
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0"].
+7. RAG Contexts (rag_contexts/)
+Simple .txt files containing guidelines for each agent, loaded into st.session_state by app.py.
+This design is now more aligned with a typical web application structure where the UI (app.py) drives interactions, manages application-level state (st.session_state), persists to a database (utils/database.py), and calls business logic modules (PocketFlow flows defined in flow.py which use nodes.py).
