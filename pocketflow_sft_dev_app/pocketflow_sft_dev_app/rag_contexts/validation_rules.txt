@@ -1,0 +1,7 @@
+1. Function Definition: The code must contain a valid Python function definition (`def function_name(...):`).
+2. Docstring Presence: The function must have a docstring.
+3. Type Hints: Parameters and return type should ideally have type hints (though this is a soft rule for MVP if the LLM struggles).
+4. No Infinite Loops: Avoid obvious infinite loop constructs if detectable by static analysis (hard for LLM to fully check).
+5. Basic Security: Avoid using `eval()` or `exec()` with unsanitized user input (less relevant for MVP function generation but good practice).
+6. Python Syntax: The code must be syntactically valid Python.
+7. Adherence to Plan: The function signature (name, parameters) should reasonably match the `planned_task_description`.

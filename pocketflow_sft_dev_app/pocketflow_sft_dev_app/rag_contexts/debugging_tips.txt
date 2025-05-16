@@ -1,0 +1,1 @@
+1. Check Inputs: Ensure the function is called with the correct number and types of arguments as defined

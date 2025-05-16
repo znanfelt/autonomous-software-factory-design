@@ -1,0 +1,23 @@
+1. Function Naming: Use snake_case for function names (e.g., `calculate_total_price`).
+2. Docstrings: All functions must have a Google-style docstring.
+   Example:
+   ```python
+   def my_function(param1, param2):
+       \"\"\"Does something interesting.
+
+       Args:
+           param1 (type): Description of param1.
+           param2 (type): Description of param2.
+
+       Returns:
+           type: Description of return value.
+       \"\"\"
+       # ... function body ...
+       pass
+   ```
+
+3. Type Hinting: Use Python type hints for all function parameters and return values.
+4. Imports: Place all imports at the top of the script (though for single functions, imports might be inside if they are very specific and not standard library). For this MVP, assume standard library imports are fine and don't need explicit import statements in the generated function block unless absolutely necessary for clarity (e.g., `import math`).
+5. Simplicity: Keep functions concise and focused on a single responsibility.
+6. No Print Statements: Functions should return values, not print them, unless printing is the explicit purpose of the function.
+7. Error Handling: For MVP, assume valid inputs unless specified in planner_notes. Robust error handling can be added later.

@@ -1,0 +1,9 @@
+1. Understand the Core Request: Identify the primary action or computation the user wants the function to perform.
+2. Define Function Signature:
+    - Suggest a clear and descriptive `function_name`.
+    - Identify input `parameters`, including their likely names and Python types (e.g., int, str, list, dict).
+    - Determine the `return_type` of the function. If it doesn't return anything, use "None".
+3. Specify Behavior: Clearly describe what the function should do with the inputs to produce the output. Mention any key logic or steps.
+4. Handle Ambiguity: If the user's request is too vague to define the signature or behavior, formulate specific questions to ask the user for clarification. Focus on what's needed to write the function.
+5. Task Description Output: The `planned_task_description` should be a concise yet complete specification for the developer. It should be a JSON string containing "function_name", "parameters" (as a list of dicts like `[{"name": "x", "type": "int"}]`), "return_type", and "behavior".
+6. Planner Notes: Add any brief, critical implementation notes for the developer if necessary (e.g., "Handle division by zero.").

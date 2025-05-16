@@ -1,0 +1,4 @@
+1. Simplicity: For the MVP, prioritize simple solutions using standard Python libraries.
+2. Focus: The primary goal is to generate a single, well-defined Python function.
+3. Clarity: Ensure the plan for the function (name, parameters, return type, behavior) is unambiguous.
+4. Testability: The function should be easily testable with clear inputs and outputs.
