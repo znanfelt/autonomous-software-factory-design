@@ -1,3 +1,4 @@
+# flow.py
 import logging
 from pocketflow import Flow
 from nodes import (
@@ -7,108 +8,58 @@ from nodes import (
 
 logger = logging.getLogger(__name__)
 
-def create_sdlc_flow() -> Flow:
-    logger.info("Creating SDLC Flow definition...")
-    # Instantiate nodes
+def create_elicitation_flow() -> Flow:
+    logger.info("Creating Elicitation Flow (InitialRequest >> ArchitectPlanner)...")
     initial_request_node = InitialRequestNode()
     architect_planner_node = ArchitectPlannerNode()
-    developer_node = DeveloperNode()
-    test_case_designer_node = TestCaseDesignerNode()
-    qa_node = QANode()
-    validation_node = ValidationNode()
-    critique_node = CritiqueNode()
-    package_node = PackageNode()
-    # Placeholder for a human interaction node (not a PocketFlow node, managed by UI)
-    # human_clarification_node = "HUMAN_CLARIFICATION_STAGE_MARKER" 
-
-    # Define the main flow sequence and branches
     initial_request_node >> architect_planner_node
+    return Flow(start=initial_request_node)
 
-    architect_planner_node - "clarification_needed" >> None # UI will handle this, then re-trigger architect_planner_node
-    architect_planner_node - "plan_ready_for_code" >> test_case_designer_node
-    architect_planner_node - "error_encountered" >> None # End flow on critical planner error
-
-    test_case_designer_node >> developer_node # Default transition if tests are designed
-    test_case_designer_node - "error_encountered" >> None # End flow if test design fails critically
-
-    developer_node - "code_ready_for_tests" >> qa_node
-    developer_node - "code_generation_failed" >> critique_node # If dev can't even produce code
-
-    # QA loop for multiple test cases
-    qa_node - "run_next_test" >> qa_node # Loop to run all test cases
-    qa_node - "testing_error_or_done" >> validation_node # After all tests or if one fails/errors
-    
-    validation_node - "validation_done" >> critique_node # Always critique after validation unless approved by human
-    validation_node - "error_encountered" >> critique_node # If validation itself errors, critique might help
-
-    critique_node - "refine_code" >> developer_node # Loop back to developer for refinement
-
-    # Final packaging after potential human approval (handled by UI state change)
-    # For PocketFlow, we assume critique_node directly leads to dev.
-    # The UI logic will break this loop if max_refinements is hit or user approves.
-    # If we had a "final_approval" action from a HITL node:
-    # validation_node - "approved_by_human" >> package_node (This path is managed by Streamlit logic)
-
-    # For now, let's assume the flow ends if critique leads to too many refinements (handled by UI)
-    # or if an error path leads to None. `PackageNode` would be triggered by UI after human approval.
-
-    # The flow starting point for the initial request processing.
-    # Subsequent stages (like triggering PackageNode) will be handled by Streamlit app.py
-    # by running different "sub-flows" or re-running parts of a larger conceptual flow.
-    
-    # For this simulation, we'll make a linear path to packaging if all goes well.
-    # In Streamlit, human review would interrupt this.
-    # Simplified "happy path" for pure PocketFlow run:
-    validation_node - "validation_done_and_passed" >> package_node # Add this hypothetical path
-    
-    # For a fully contained PocketFlow, you'd need a node representing human review.
-    # Since Streamlit handles that, PocketFlow parts are more like sub-routines.
-    # Let's define a main elicitation flow for now.
-    
-    main_elicitation_and_dev_flow = Flow(start=initial_request_node)
-    logger.info("SDLC Flow definition created.")
-    return main_elicitation_and_dev_flow
-
-
-# Separate flow for testing and review cycle
-def create_test_review_refine_flow() -> Flow:
-    logger.info("Creating Test-Review-Refine Flow definition...")
-    # Nodes are already instantiated globally for simplicity in this example
-    # In a larger app, you might pass them or re-instantiate.
-    developer_node = DeveloperNode()
+def create_test_design_flow() -> Flow:
+    logger.info("Creating Test Design Flow (TestCaseDesigner)...")
     test_case_designer_node = TestCaseDesignerNode()
+    return Flow(start=test_case_designer_node)
+
+def create_initial_code_gen_flow() -> Flow:
+    # Assumes plan is in shared state.
+    logger.info("Creating Initial Code Generation Flow (DeveloperNode)...")
+    developer_node = DeveloperNode() # Ensure it uses planned_task_description
+    return Flow(start=developer_node)
+
+def create_qa_and_validation_flow() -> Flow:
+    # This flow assumes code and test cases are in shared state.
+    # It will run all tests, then validate.
+    logger.info("Creating QA & Validation Flow (QANode >> ValidationNode)...")
     qa_node = QANode()
     validation_node = ValidationNode()
+    
+    qa_node - "run_next_test" >> qa_node  # Loop for multiple tests
+    qa_node - "testing_error_or_done" >> validation_node # Proceed after all tests or error
+    
+    # If validation itself errors, it will just end. UI will pick up error from shared state.
+    # ValidationNode.post() returns None by default (or specific if needed)
+    return Flow(start=qa_node)
+
+def create_critique_and_refine_flow() -> Flow:
+    # This flow takes current code, test/validation failures, user feedback
+    # generates critique, then new code.
+    logger.info("Creating Critique & Refine Flow (CritiqueNode >> DeveloperNode)...")
     critique_node = CritiqueNode()
-
-    # This flow assumes plan and initial code OR critique exist
-    # It starts from developer (if refining) or test_case_designer (if first code for plan)
+    developer_node = DeveloperNode() # DeveloperNode should handle critique_feedback
     
-    # Path for new code: Design Tests -> Develop -> QA -> Validate -> Critique (if needed)
-    test_case_designer_node >> developer_node
-    developer_node - "code_ready_for_tests" >> qa_node
-    developer_node - "code_generation_failed" >> critique_node
-    
-    qa_node - "run_next_test" >> qa_node
-    qa_node - "testing_error_or_done" >> validation_node # If tests pass or one fails/errors
-    
-    validation_node - "validation_done" >> critique_node # Always go to critique after automated checks. UI handles approval.
-    validation_node - "error_encountered" >> critique_node
-
-    critique_node - "refine_code" >> developer_node # Loop back for refinement
-
-    # This flow is typically started at test_case_designer_node or developer_node via Streamlit
-    # For testing, can define a start point.
-    # This is more a "segment" of the overall process managed by UI.
-    # Let's make a runnable flow starting from test_case_designer for this segment:
-    test_refine_flow = Flow(start=test_case_designer_node)
-    logger.info("Test-Review-Refine Flow definition created.")
-    return test_refine_flow
-
+    critique_node - "refine_code" >> developer_node
+    # DeveloperNode returns "code_ready_for_tests" or "code_generation_failed"
+    return Flow(start=critique_node)
 
 def create_packaging_flow() -> Flow:
-    logger.info("Creating Packaging Flow definition...")
+    logger.info("Creating Packaging Flow (PackageNode)...")
     package_node = PackageNode()
-    packaging_flow = Flow(start=package_node)
-    logger.info("Packaging Flow definition created.")
-    return packaging_flow
+    return Flow(start=package_node)
+
+# Instantiate flows for app.py to use
+elicitation_flow = create_elicitation_flow()
+test_design_flow = create_test_design_flow()
+initial_code_gen_flow = create_initial_code_gen_flow() # For first code attempt
+qa_validation_flow = create_qa_and_validation_flow()
+critique_refine_flow = create_critique_and_refine_flow() # For refinement cycles
+packaging_flow = create_packaging_flow()

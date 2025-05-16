@@ -13,7 +13,8 @@ Based on this, output ONLY a valid JSON object with the following keys:
 - "chosen_language": Always "python" for this MVP.
 - "framework_hint": Always "standard_library" for this MVP.
 - "high_level_notes": Brief notes (1-2 sentences) for the planner, confirming the task is a simple Python function.
-"""
+Please ensure your entire response is a single JSON object.
+""" # Added "Please ensure your entire response is a single JSON object." for OpenAI JSON mode
 
 PLANNER_CLARIFICATION_PROMPT_TEMPLATE = """
 You are an expert Requirements Analyst and Planner.
@@ -31,7 +32,8 @@ Identify up to 3 specific, concise questions to ask the user to clarify the requ
 Focus on function name, parameters (names, types, order), return type, and core behavior.
 Output ONLY a valid JSON object with one key:
 - "clarification_questions": A list of strings, where each string is a question for the user.
-  Example: {"clarification_questions": ["What should the function be named?", "What are the input parameters and their types?"]}
+  Example: {{"clarification_questions": ["What should the function be named?", "What are the input parameters and their types?"]}}
+Please ensure your entire response is a single JSON object.
 """
 
 PLANNER_CODEGEN_PROMPT_TEMPLATE = """
@@ -49,11 +51,12 @@ Define a specific plan for a single Python function based on the request.
 Output ONLY a valid JSON object with the following keys:
 - "planned_task_description": A detailed description including:
     - Suggested function_name (e.g., "calculate_sum").
-    - Input parameters (list of dicts: [{"name": "param1", "type": "int"}, {"name": "param2", "type": "str"}]). If no params, use empty list.
+    - Input parameters (list of dicts: [{{"name": "param1", "type": "int"}}, {{"name": "param2", "type": "str"}}]). If no params, use empty list.
     - Return type (e.g., "int", "str", "list[int]", "None").
     - Core behavior and any specific logic to implement.
 - "planner_notes": Any brief, critical notes for the developer (1-2 sentences).
 - "clarification_questions": An empty list `[]` as the request is now considered clear.
+Please ensure your entire response is a single JSON object.
 """
 
 DEVELOPER_CODEGEN_PROMPT_TEMPLATE = """
@@ -76,6 +79,7 @@ Full Feedback History (for context, address any unresolved issues from here too)
 Based on the task, planner notes, and ALL feedback (prioritizing the latest), write or revise the Python function.
 Include a concise docstring explaining what the function does, its parameters, and what it returns.
 Output ONLY the Python code block for the function, enclosed in ```python ... ```. No other text.
+(Important: This prompt requests a code block, not JSON. The call_llm for this should NOT use response_format json_object)
 """
 
 TEST_CASE_DESIGNER_PROMPT_TEMPLATE = """
@@ -103,7 +107,7 @@ Example for a function `def add(a: int, b: int) -> int:`:
   ]
 }}
 ```
-
+Please ensure your entire response is a single JSON object.
 """
 
 VALIDATION_PROMPT_TEMPLATE = """
@@ -112,7 +116,6 @@ Task Description (for context): {task_description}
 Planner Notes (for context): {planner_notes}
 
 Code to Validate:
-
 ```python
 {code_to_validate}
 ```
@@ -124,8 +127,9 @@ Consult the Validation Rules.
 
 Analyze the code against these rules.
 Output ONLY a valid JSON object with two keys:
-* "validation_passed": boolean (true if no issues, false if any issues are found).
-* "issues_found": A list of strings, where each string describes a specific validation issue found. Empty list if validation_passed is true.
+- "validation_passed": boolean (true if no issues, false if any issues are found).
+- "issues_found": A list of strings, where each string describes a specific validation issue found. Empty list if validation_passed is true.
+Please ensure your entire response is a single JSON object.
 """
 
 CRITIQUE_PROMPT_TEMPLATE = """
@@ -134,7 +138,6 @@ Task Description (for context): {task_description}
 Planner Notes (for context): {planner_notes}
 
 Code in Question:
-
 ```python
 {code_in_question}
 ```
@@ -152,5 +155,6 @@ Consult Debugging Tips if relevant.
 Based on the reasons provided, provide concise, constructive feedback for a developer (1-3 sentences).
 Focus on the root cause and suggest specific areas for improvement. Do not rewrite the code yourself.
 Output ONLY a valid JSON object with a single key "critique_feedback", which is a string containing your feedback.
-Example: {"critique_feedback": "The function fails for empty lists. Add a check for empty input before iterating."}
+Example: {{"critique_feedback": "The function fails for empty lists. Add a check for empty input before iterating."}}
+Please ensure your entire response is a single JSON object.
 """

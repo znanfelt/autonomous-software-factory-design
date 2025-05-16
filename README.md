@@ -32,6 +32,26 @@ The application allows a user to describe a Python function. A series of AI agen
 * **SQLite Persistence:** Task progress, generated code, test results, and feedback are stored in an SQLite database.
 * **Dockerized:** The application is containerized for easy setup and consistent execution.
 
+## SDLC Flow Diagram
+
+```mermaid
+flowchart TD
+    A([User Input]) --> B(Architect/Planner Node)
+    B -->|Clear| C(Test Case Designer Node)
+    B -->|Needs Clarification| D[User Clarification]
+    D --> B
+    C --> E(Developer Node)
+    E --> F(QA Node)
+    F -->|All Tests Pass| G(Validation Node)
+    F -->|Test Fails| H(Critique Node)
+    G -->|Validation Pass| I[User Review]
+    G -->|Validation Fail| H
+    I -->|Approve| J(Package Node)
+    I -->|Reject| H
+    H --> E
+    J --> K([Done])
+```
+
 ## Directory Structure
 
 ```text
@@ -56,50 +76,41 @@ pocketflow_sft_dev_app/
 └── README md                  # This file
 ```
 
-## Setup & Running with Docker
+## Setup & Running with Docker Compose
 
 1. **Prerequisites:**
-    * Docker installed and running.
+    * Docker and Docker Compose installed and running.
     * An OpenAI API key.
 
 2. **Clone/Download Files:**
-    Ensure all project files are in a directory named `pocketflow_sft_dev_app`.
+    Ensure all project files are in a directory (e.g., `autonomous-software-factory-design`).
 
-3. **Build the Docker Image:**
-    Navigate to the `pocketflow_sft_dev_app` directory in your terminal and run:
+3. **Configure Secrets:**
+    Create a `.env` file in the project root with your secrets (do not commit this file):
 
-    ```bash
-    docker build -t pocketflow-sft-dev-app .
+    ```env
+    OPENAI_API_KEY=sk-your_actual_openai_api_key
+    # You can add other environment variables here if needed
     ```
 
-4. **Run the Docker Container:**
-    Replace `"sk-your_actual_openai_api_key"` with your real OpenAI API key.
+4. **Build and Start the Application:**
+    From the project root, run:
 
     ```bash
-    docker run -it --rm -p 8501:8501 \
-      -e OPENAI_API_KEY="sk-your_actual_openai_api_key" \
-      pocketflow-sft_dev_app 
-      # Note: Image name from build command (no hyphen, fixed here)
+    docker compose up --build
     ```
 
-    To persist the SQLite database across container runs, map a local directory to `/app/database` in the container:
+    This will use the provided `docker-compose.yml` and `Dockerfile` to build and run the app. Your code will be mounted into the container for live reload during development.
 
-    ```bash
-    # Create a directory on your host first, e.g., ./database_host_data
-    mkdir -p database_host_data 
-    
-    docker run -it --rm -p 8501:8501 \
-      -e OPENAI_API_KEY="sk-your_actual_openai_api_key" \
-      -v "$(pwd)/database_host_data:/app/database" \
-      pocketflow-sft-dev-app
-    ```
+5. **Persist the SQLite Database (Default):**
+    The database is stored in the `database/` directory and is persisted by default via the volume mapping in `docker-compose.yml`.
 
-5. **Access the Application:**
+6. **Access the Application:**
     Open your web browser and navigate to `http://localhost:8501`.
 
 ## Environment Variables
 
-The Docker container uses the following environment variables (can be set with `-e` during `docker run`):
+Environment variables can be set in your `.env` file or overridden in `docker-compose.yml`:
 
 * `OPENAI_API_KEY` (Required): Your OpenAI API key.
 * `ARCHITECT_LLM_MODEL` (Default: `gpt-4o`): Model for the Architect/Planner.
@@ -132,7 +143,6 @@ SQLite is used to store the state of each task, including all generated artifact
 ## Future Enhancements
 
 * More sophisticated RAG using LlamaIndex or similar.
-* Integration with actual Version Control Systems (e.g., Git).
 * Support for more complex software (multiple files, classes, dependencies).
 * Advanced security (SAST/DAST) and compliance checks.
 * Visual graph of the PocketFlow execution in Streamlit.
