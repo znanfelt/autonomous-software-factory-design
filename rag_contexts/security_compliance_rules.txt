@@ -1,0 +1,11 @@
+# Basic Security & Compliance Rules for MVP
+
+1. No Hardcoded Secrets: Passwords, API keys, or other sensitive credentials must not be hardcoded directly in the source code. They should be loaded from environment variables or a configuration management system (though for this MVP, just flag hardcoding).
+2. Avoid `eval()` and `exec()`: The use of `eval()` and `exec()` with dynamic or user-supplied input is strongly discouraged due to security risks.
+3. Input Validation (Basic Check): Be wary of functions that take external string inputs and use them directly in system commands, file paths, or database query construction without apparent sanitization. Flag obvious cases.
+4. SQL Injection (Basic Check): If code constructs SQL queries by directly embedding string inputs (e.g., using f-strings like `f"SELECT * FROM users WHERE name = '{name}'"`), flag it as a potential SQL injection risk.
+5. Use of Known Insecure Modules (Limited Scope): For MVP, flag direct usage of `pickle.load()` or `pickle.loads()` if the data source seems to be external or untrusted. Flag usage of `hashlib.md5()` or `hashlib.sha1()` for password hashing contexts.
+6. Docstrings: All public functions and classes should have a docstring explaining their purpose, arguments, and return values.
+7. Error Handling (Basic): Operations prone to failure (e.g., file I/O, network requests like `requests.get()`) should ideally be within a try-except block. Flag if obviously missing for such operations.
+8. Unused Imports: Identify and flag any imported modules that are not used within a file (simple static check).
+9. Standard Library Preference: For MVP, primarily standard library functions should be used. If common, well-known third-party libraries (like 'requests', 'beautifulsoup4') are imported, it's acceptable but note them. Avoid obscure or unknown third-party libraries.

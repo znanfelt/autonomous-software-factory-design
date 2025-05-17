@@ -1,4 +1,4 @@
-import json # Not strictly needed here, but good for context
+import json 
 
 ARCHITECT_PROMPT_TEMPLATE = """
 You are a Senior Software Architect. Your task is to make high-level technical decisions for a user's software request.
@@ -128,7 +128,16 @@ Function/Component Plan:
 {function_plan_json_str} 
 Planner Notes (for context): {planner_notes}
 
-Your task is to create 2 to 3 diverse test cases for the main Python component described in the plan (typically specified by "component_name" and "target_file" in the plan, or by "main_function_to_test" and "entry_point_file").
+Current Project Structure (if available, for context on existing code for refinement):
+```json
+{current_project_structure_json_str}
+```
+
+Recent Critique/Feedback (if any, this might inform test cases for refined areas):
+{critique_feedback_for_tests}
+
+Your task is to create 2 to 3 diverse test cases for the main Python component described in the Function/Component Plan.
+If critique_feedback_for_tests is provided, ensure at least one test case specifically targets the issues raised or areas being refined.
 Each test case should be a JSON object with:
 1. "target_file": The name of the Python file containing the function/method to test (e.g., "main.py").
 2. "target_function": The name of the function or method to test (e.g., "process_data").
@@ -138,28 +147,6 @@ Each test case should be a JSON object with:
 
 Consider typical cases and simple edge cases.
 Output ONLY a valid JSON object with a single key "test_cases", which is a list of these test case objects.
-
-Example for a function `def process_data(x: int) -> int:` in `main.py` that uses a helper `add_one` from `utils.py`:
-```json
-{{
-  "test_cases": [
-    {{
-      "target_file": "main.py",
-      "target_function": "process_data",
-      "inputs": [5], 
-      "expected_output": 6, 
-      "description": "Test process_data with a positive integer."
-    }},
-    {{
-      "target_file": "utils.py", 
-      "target_function": "add_one", 
-      "inputs": [0], 
-      "expected_output": 1, 
-      "description": "Test helper add_one with zero."
-    }}
-  ]
-}}
-```
 Please ensure your entire response is a single JSON object.
 """
 
@@ -210,5 +197,55 @@ Based on ALL provided reasons, provide concise, constructive feedback for a deve
 Focus on the root cause and suggest specific areas for improvement across the project or in specific files. Do not rewrite the code yourself.
 Output ONLY a valid JSON object with a single key "critique_feedback", which is a string containing your feedback.
 Example: {{"critique_feedback": "In main.py, the function 'process_data' fails for empty lists. Add a check. In utils.py, 'helper_func' has an off-by-one error in the loop."}}
+Please ensure your entire response is a single JSON object.
+"""
+
+# --- NEW PROMPT ---
+SECURITY_COMPLIANCE_PROMPT_TEMPLATE = """
+You are a Security and Compliance Code Review Agent.
+Function/Project Plan (for context):
+{task_description_json_str}
+
+Project Code to Review (JSON structure with filenames and content):
+```json
+{project_structure_json_str}
+```
+
+Review the provided Python code for basic security vulnerabilities and compliance with the given rules.
+Focus on identifying common issues in Python code.
+
+--- BEGIN SECURITY & COMPLIANCE RULES ---
+{security_compliance_rules_context} 
+--- END SECURITY & COMPLIANCE RULES ---
+
+Specifically check for:
+1.  Use of 'eval()' or 'exec()' with potentially unsanitized input.
+2.  Hardcoded sensitive information (e.g., passwords, API keys - look for common patterns like 'API_KEY = "secret"').
+3.  Obvious SQL injection vulnerabilities if SQL-like query strings are constructed from inputs without parameterization.
+4.  Use of known insecure libraries or functions (e.g., 'pickle' with untrusted data, 'md5' or 'sha1' for new passwords).
+5.  Adherence to specified compliance rules from the context (e.g., presence of docstrings, basic error handling for I/O).
+
+Output ONLY a valid JSON object with two keys:
+* "security_compliance_passed": boolean (true if NO significant issues are found, false otherwise).
+* "issues_identified": A list of strings. Each string should describe a specific security or compliance issue found, mentioning the file and a brief code snippet if relevant. If no issues, this should be an empty list.
+
+Example:
+```json
+{{
+  "security_compliance_passed": false,
+  "issues_identified": [
+    "File 'config.py': Hardcoded API key found: API_KEY = 'supersecret'.",
+    "File 'db_utils.py', function 'get_user': Potential SQL injection in query construction: query = f\\"SELECT * FROM users WHERE username = '{{user_input}}'\\".",
+    "File 'main.py', function 'process_data': Missing docstring."
+  ]
+}}
+```
+If all checks pass:
+```json
+{{
+  "security_compliance_passed": true,
+  "issues_identified": []
+}}
+```
 Please ensure your entire response is a single JSON object.
 """
