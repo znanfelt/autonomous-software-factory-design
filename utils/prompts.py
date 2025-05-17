@@ -1,4 +1,5 @@
-# --- ARCHITECT PROMPT ---
+import json # Not strictly needed here, but good for context
+
 ARCHITECT_PROMPT_TEMPLATE = """
 You are a Senior Software Architect. Your task is to make high-level technical decisions for a user's software request.
 Consider the Architectural Principles provided below.
@@ -17,7 +18,6 @@ Based on this, output ONLY a valid JSON object with the following keys:
 Please ensure your entire response is a single JSON object.
 """
 
-# --- PLANNER PROMPTS ---
 PLANNER_CLARIFICATION_PROMPT_TEMPLATE = """
 You are an expert Requirements Analyst and Planner.
 Architect Decision: {architect_decision_json_str}
@@ -35,7 +35,7 @@ If a multi-file project was suggested by the architect, your questions can also 
 Focus on the main component's name, parameters (names, types, order), return type, and core behavior.
 Output ONLY a valid JSON object with one key:
 - "clarification_questions": A list of strings, where each string is a question for the user.
-  Example: {{"clarification_questions": ["What should the main function be named?", "What are its input parameters and their types?", "If a helper utility is needed, what should it do?"]}}
+  Example: {{"clarification_questions": ["What should the main function be named?", "What are the input parameters and their types?", "If a helper utility is needed, what should it do?"]}}
 Please ensure your entire response is a single JSON object.
 """
 
@@ -57,7 +57,7 @@ Output ONLY a valid JSON object with the following keys:
     - "component_name": Suggested name (e.g., "calculate_sum", "DataProcessor").
     - "target_file": Suggested file name for this main component (e.g., "main.py", "core_logic.py").
     - "parameters": (For functions or class __init__) List of dicts: [{{"name": "param1", "type": "int"}}, ...]. Empty list if no params.
-    - "return_type": (For functions or main methods) e.g., "int", "str", "None".
+    - "return_type": (For functions or main methods) e.g., "int", "str", "list[int]", "None".
     - "core_behavior": Detailed description of what this main component should do.
 - "suggested_project_structure": (Optional) A list of dicts describing files if a multi-file project is appropriate. Each dict: {{"file_name": "e.g., utils.py", "purpose": "Briefly describe this file's role"}}. If a single file, this can be an empty list or omitted.
 - "entry_point_file": (Optional, if multi-file) The name of the file that acts as the main entry point for testing or execution.
@@ -67,11 +67,18 @@ Output ONLY a valid JSON object with the following keys:
 Please ensure your entire response is a single JSON object.
 """
 
-# --- DEVELOPER PROMPT ---
+# Ensure this template string is NOT an f-string itself, or if it is,
+# then the example Python code's f-string placeholders must be escaped.
+# Standard triple-quotes are not f-strings unless prefixed with 'f'.
 DEVELOPER_CODEGEN_PROMPT_TEMPLATE = """
-You are an expert Python coding assistant.
-Overall Task Description & Plan:
+You are an expert Python coding assistant. Your task is to generate all files for a Python project.
+
+Overall Project Plan & Main Component Specification:
 {planned_task_description_json_str} 
+
+Suggested Project File Structure & Purposes:
+{suggested_project_outline_json_str}
+
 Planner Notes: {planner_notes}
 
 Consult the Coding Standards.
@@ -80,39 +87,41 @@ Consult the Coding Standards.
 --- END CODING STANDARDS ---
 
 LATEST FEEDBACK TO ADDRESS (if any):
-Critique: {critique_message}
+Critique: {critique_feedback}
 --- END LATEST FEEDBACK ---
 
 Full Feedback History (for context, address any unresolved issues from here too):
 {full_feedback_history}
 
-Based on the task, plan, notes, and ALL feedback (prioritizing the latest), write or revise the Python project.
-Each generated file must include a concise docstring for functions/classes.
-Output ONLY a valid JSON object representing the project structure. The JSON object must have a key "files" which is a list of file objects. Each file object must have "name" (string, e.g., "main.py") and "content" (string, the Python code for that file).
-If the plan suggests an entry point or a main function to test, include "entry_point_file" and "main_function_to_test" keys at the root of your JSON response.
+Based on the **Suggested Project File Structure**, the **Overall Project Plan**, and ALL **feedback**, write or revise the Python code for ALL files in the project.
+The `planned_task_description` details the main component (function or class) which should typically reside in the file specified as `target_file` within that description, or in the `entry_point_file` if specified in the project structure.
+Ensure any necessary imports between your generated files are correct (e.g., if 'app.py' needs to import from 'utils.py').
+Include concise docstrings for all functions/classes.
+
+Output ONLY a valid JSON object representing the complete project structure. The JSON object must have a key "files" which is a list of file objects. Each file object must have "name" (string, e.g., "main.py") and "content" (string, the Python code for that file).
+If the plan or outline suggests an entry point or a main function to test, include "entry_point_file" and "main_function_to_test" keys at the root of your JSON response.
 
 Example for a two-file project:
 ```json
 {{
   "files": [
     {{
-      "name": "main.py",
-      "content": "from utils import add_one\\n\\ndef process_data(x):\\n  \\\"\\\"\\\"Processes data by adding one.\\\"\\\"\\\"\\n  return add_one(x)"
+      "name": "app.py",
+      "content": "from scraper_utils import fetch_text\\n\\ndef run_scraper():\\n  urls = [\\'http://example.com\\']\\n  for url in urls:\\n    text = fetch_text(url)\\n    if text:\\n      domain = url.split('//')[-1].split('/')[0].replace('.', '_')\\n      with open(f'{{{{domain}}}}_content.txt', 'w') as f:\\n        f.write(text)\\n      print(f'Saved content from {{{{url}}}}')\\n    else:\\n      print(f'Failed to fetch from {{{{url}}}}')\\n\\nif __name__ == '__main__':\\n  run_scraper()"
     }},
     {{
-      "name": "utils.py",
-      "content": "def add_one(n):\\n  \\\"\\\"\\\"Helper to add one to a number.\\\"\\\"\\\"\\n  return n + 1"
+      "name": "scraper_utils.py",
+      "content": "import requests\\nfrom bs4 import BeautifulSoup\\n\\ndef fetch_text(url: str) -> str | None:\\n  \\\"\\\"\\\"Fetches and extracts main text from a URL.\\\"\\\"\\\"\\n  try:\\n    response = requests.get(url, timeout=10)\\n    response.raise_for_status()\\n    soup = BeautifulSoup(response.content, 'html.parser')\\n    # Simple text extraction, can be improved\\n    paragraphs = soup.find_all('p')\\n    return '\\\n'.join([p.get_text() for p in paragraphs])\\n  except requests.RequestException as e:\\n    print(f'Error fetching {{{{url}}}}: {{{{e}}}}')\\n    return None"
     }}
   ],
-  "entry_point_file": "main.py",
-  "main_function_to_test": "process_data"
+  "entry_point_file": "app.py",
+  "main_function_to_test": "run_scraper" 
 }}
 ```
 Ensure all code is within the "content" field of each file object. Do not use markdown code blocks for the Python code itself within the JSON string values.
 Please ensure your entire response is a single JSON object.
 """
 
-# --- TEST CASE DESIGNER PROMPT ---
 TEST_CASE_DESIGNER_PROMPT_TEMPLATE = """
 You are a Test Case Designer.
 Function/Component Plan:
@@ -154,7 +163,6 @@ Example for a function `def process_data(x: int) -> int:` in `main.py` that uses
 Please ensure your entire response is a single JSON object.
 """
 
-# --- VALIDATION PROMPT ---
 VALIDATION_PROMPT_TEMPLATE = """
 You are a Code Validation Agent.
 Planned Task Description (for context): {task_description_json_str} 
@@ -178,7 +186,6 @@ Output ONLY a valid JSON object with two keys:
 Please ensure your entire response is a single JSON object.
 """
 
-# --- CRITIQUE PROMPT ---
 CRITIQUE_PROMPT_TEMPLATE = """
 You are a Code Critique Agent.
 Planned Task Description (for context): {task_description_json_str}

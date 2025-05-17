@@ -4,3 +4,8 @@ pocketflow>=0.0.2
 openai>=1.78.1
 # sqlite3 is part of Python's standard library, no separate install needed
 # python-dotenv might be useful for local dev outside Docker but not strictly needed for Dockerized app if using -e
+
+# Added for the web scraper example
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
