@@ -1,11 +1,11 @@
+# nodes.py
 import logging
-import json 
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
-import re # Make sure re is imported if SimpleJsonOutputParser uses it (it does)
+import json
+from typing import Any, Dict, List, Optional, Tuple, TypedDict # Ensure TypedDict is imported
 
-from pocketflow import Node
+from pocketflow import Node # BaseNode is not typically directly used by app developers
 from utils.call_llm import call_llm
-from utils.tools import extract_python_code, code_tester_tool
+from utils.tools import extract_project_structure_from_llm, code_tester_tool # Updated extract function
 from utils.prompts import (
     ARCHITECT_PROMPT_TEMPLATE, PLANNER_CLARIFICATION_PROMPT_TEMPLATE,
     PLANNER_CODEGEN_PROMPT_TEMPLATE, DEVELOPER_CODEGEN_PROMPT_TEMPLATE,
@@ -18,37 +18,38 @@ logger = logging.getLogger(__name__)
 class SimpleJsonOutputParser:
     def parse(self, text: str) -> Any:
         try:
-            # Attempt to find JSON within ```json ... ``` or ``` ... ```
-            match_md_json = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
+            # Remove potential markdown code fences if present
+            # Standard JSON ```json ... ```
+            match_md_json = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
+            # Generic ``` ... ```
             match_md_generic = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
             
             json_text_to_parse = None
             if match_md_json:
                 json_text_to_parse = match_md_json.group(1).strip()
             elif match_md_generic:
-                # If generic, try to parse its content, assuming it might be JSON
                 json_text_to_parse = match_md_generic.group(1).strip()
             else:
-                # If no markdown blocks, try to find a JSON object directly
-                match_obj = re.search(r"\{.*\}", text, re.DOTALL)
+                # If no markdown blocks, try to find a JSON object directly.
+                # This is a bit more lenient, might grab surrounding text if JSON is not well-formed.
+                match_obj = re.search(r"^\s*\{.*\}\s*$", text, re.DOTALL)
                 if match_obj:
-                    json_text_to_parse = match_obj.group(0)
+                    json_text_to_parse = match_obj.group(0).strip()
+                else: # Fallback to assuming the whole text might be JSON, if no blocks/objects clearly identified
+                    json_text_to_parse = text.strip()
             
-            if json_text_to_parse:
-                return json.loads(json_text_to_parse)
-            else:
-                logger.error(f"JSON Parser: No JSON block or object found in text: {text[:200]}...")
-                return {"error": "JSON parsing failed: No JSON content found", "raw_text": text}
+            if not json_text_to_parse:
+                logger.error(f"JSON Parser: No JSON content identified after stripping markdown for text: {text[:200]}...")
+                return {"error": "JSON parsing failed: No JSON content identified", "raw_text": text}
+
+            return json.loads(json_text_to_parse)
         except json.JSONDecodeError as e:
             logger.error(f"JSON Parsing Error in SimpleJsonOutputParser: {e} in text: {json_text_to_parse[:200] if json_text_to_parse else text[:200]}...")
             return {"error": f"JSON parsing failed: {e}", "raw_json_text": json_text_to_parse, "original_text": text}
-        except Exception as e: # Catch any other parsing related error
+        except Exception as e:
             logger.error(f"Unexpected error in SimpleJsonOutputParser: {e} for text: {text[:200]}...")
             return {"error": f"Unexpected parsing error: {e}", "raw_text": text}
 
-
-class InitialRequestPrepInput(TypedDict):
-    user_raw_request: str
 
 class InitialRequestNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Optional[str]:
@@ -74,14 +75,8 @@ class InitialRequestNode(Node):
         return "default"
 
 
-class ArchitectPlannerPrepInput(TypedDict):
-    current_request: str
-    architectural_principles_context: str
-    planning_guidelines_context: str
-    llm_models_config: Dict[str, str]
-
 class ArchitectPlannerNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> ArchitectPlannerPrepInput:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering ArchitectPlannerNode - Prep")
         return {
             "current_request": shared.get("current_request_for_planner", ""),
@@ -90,7 +85,7 @@ class ArchitectPlannerNode(Node):
             "llm_models_config": shared.get("llm_models_config", {})
         }
 
-    def exec(self, prep_res: ArchitectPlannerPrepInput) -> Dict[str, Any]:
+    def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"ArchitectPlannerNode - Executing with request: {prep_res['current_request'][:100]}...")
         current_request = prep_res["current_request"]
         arch_principles_ctx = prep_res["architectural_principles_context"]
@@ -102,74 +97,50 @@ class ArchitectPlannerNode(Node):
             user_request=current_request,
             architectural_principles_context=arch_principles_ctx
         )
-        logger.debug(f"Architect Prompt (first 200 chars): {arch_prompt[:200]}...")
-        arch_response_str = call_llm(messages=[{"role": "user", "content": arch_prompt}], model=architect_llm_model, temperature=0.1)
+        arch_response_str = call_llm(messages=[{"role": "user", "content": arch_prompt}], model=architect_llm_model, temperature=0.1, expect_json=True)
         arch_decision = SimpleJsonOutputParser().parse(arch_response_str)
         
         if arch_decision.get("error"):
-            logger.error(f"Architect LLM error or parsing failed: {arch_decision['error']}")
+            logger.error(f"Architect LLM error or parsing failed: {arch_decision.get('error')}")
             return {"error": "Architect LLM failed", "details": arch_decision.get("raw_text", arch_response_str)}
-
         logger.info(f"Architect decision: {arch_decision}")
 
         planner_llm_model = llm_models_config.get("planner_llm", "gpt-4o")
         
-        # DEBUGGING: Print template and args before format
-        logger.debug(f"DEBUG: PLANNER_CODEGEN_PROMPT_TEMPLATE (first 100 chars):\n{PLANNER_CODEGEN_PROMPT_TEMPLATE[:100]}...")
-        format_args_codegen = {
-            "user_request_to_process": current_request,
-            "planning_guidelines_context": plan_guidelines_ctx,
-            "chosen_language": arch_decision.get("chosen_language", "python"),
-            "framework_hint": arch_decision.get("framework_hint", "standard_library"),
-            "architect_notes": arch_decision.get("high_level_notes", "N/A")
-        }
-        logger.debug(f"DEBUG: Arguments for PLANNER_CODEGEN_PROMPT_TEMPLATE.format(): {format_args_codegen}")
-        
-        try:
-            planner_codegen_prompt = PLANNER_CODEGEN_PROMPT_TEMPLATE.format(**format_args_codegen)
-        except KeyError as e:
-            logger.error(f"CRITICAL: KeyError during PLANNER_CODEGEN_PROMPT_TEMPLATE.format(): {e}")
-            # Log the exact keys present in the template to see if there's a mismatch
-            import re
-            template_keys = set(re.findall(r'{([^{}]+)}', PLANNER_CODEGEN_PROMPT_TEMPLATE))
-            logger.error(f"Expected keys in template: {template_keys}")
-            logger.error(f"Provided keys in args: {set(format_args_codegen.keys())}")
-            raise # Re-raise the original error to halt and see this debug info
-
-        logger.debug(f"Planner Codegen Prompt (first 300 chars): {planner_codegen_prompt[:300]}...")
-        planner_response_str = call_llm(messages=[{"role": "user", "content": planner_codegen_prompt}], model=planner_llm_model, temperature=0.2)
+        planner_codegen_prompt = PLANNER_CODEGEN_PROMPT_TEMPLATE.format(
+            user_request_to_process=current_request,
+            planning_guidelines_context=plan_guidelines_ctx,
+            architect_decision_json_str=json.dumps(arch_decision) # Pass full architect decision
+        )
+        planner_response_str = call_llm(messages=[{"role": "user", "content": planner_codegen_prompt}], model=planner_llm_model, temperature=0.2, expect_json=True)
         planned_output = SimpleJsonOutputParser().parse(planner_response_str)
 
         if planned_output.get("error"):
-            logger.error(f"Planner Codegen LLM error or parsing failed: {planned_output['error']}")
+            logger.error(f"Planner Codegen LLM error or parsing failed: {planned_output.get('error')}")
             return {"error": "Planner Codegen LLM failed", "details": planned_output.get("raw_text", planner_response_str), "architect_decision": arch_decision}
 
-        if planned_output.get("planned_task_description") and not planned_output.get("clarification_questions"): # Ensure questions is explicitly empty or not present
+        # Check if the planner thinks it's clear (empty clarification_questions or key not present)
+        if planned_output.get("planned_task_description") and not planned_output.get("clarification_questions"):
             logger.info(f"Planner created task description: {str(planned_output['planned_task_description'])[:100]}...")
             return {"architect_decision": arch_decision, "planned_output": planned_output, "needs_clarification": False}
 
         logger.info("Planner determined request needs clarification or codegen plan was insufficient. Asking clarification questions.")
-        format_args_clarification = {
-             "user_request_to_process": current_request,
-             "planning_guidelines_context": plan_guidelines_ctx,
-             "chosen_language": arch_decision.get("chosen_language", "python"),
-             "framework_hint": arch_decision.get("framework_hint", "standard_library"),
-             "architect_notes": arch_decision.get("high_level_notes", "N/A")
-        }
-        planner_clar_prompt = PLANNER_CLARIFICATION_PROMPT_TEMPLATE.format(**format_args_clarification)
-        logger.debug(f"Planner Clarification Prompt (first 300 chars): {planner_clar_prompt[:300]}...")
-        clar_response_str = call_llm(messages=[{"role": "user", "content": planner_clar_prompt}], model=planner_llm_model, temperature=0.3)
+        planner_clar_prompt = PLANNER_CLARIFICATION_PROMPT_TEMPLATE.format(
+             user_request_to_process=current_request,
+             planning_guidelines_context=plan_guidelines_ctx,
+             architect_decision_json_str=json.dumps(arch_decision) # Pass full architect decision
+        )
+        clar_response_str = call_llm(messages=[{"role": "user", "content": planner_clar_prompt}], model=planner_llm_model, temperature=0.3, expect_json=True)
         clar_output = SimpleJsonOutputParser().parse(clar_response_str)
         
         if clar_output.get("error"):
-            logger.error(f"Planner Clarification LLM error or parsing failed: {clar_output['error']}")
+            logger.error(f"Planner Clarification LLM error or parsing failed: {clar_output.get('error')}")
             return {"error": "Planner Clarification LLM failed", "details": clar_output.get("raw_text", clar_response_str), "architect_decision": arch_decision}
             
         logger.info(f"Planner generated clarification questions: {clar_output.get('clarification_questions')}")
         return {"architect_decision": arch_decision, "planned_output": clar_output, "needs_clarification": True}
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]):
-        # (Post method remains the same as previously provided)
         logger.info("ArchitectPlannerNode - Post")
         shared["planner_iteration_count"] = shared.get("planner_iteration_count", 0) + 1
 
@@ -178,19 +149,22 @@ class ArchitectPlannerNode(Node):
             logger.error(f"ArchitectPlannerNode error: {shared['current_error_message']}")
             return "error_encountered" 
 
-        shared["architectural_decision"] = exec_res["architect_decision"]
-        planned_output = exec_res["planned_output"]
+        shared["architectural_decision"] = exec_res.get("architect_decision")
+        planned_output = exec_res.get("planned_output", {})
         
-        if exec_res["needs_clarification"] and planned_output.get("clarification_questions"):
+        if exec_res.get("needs_clarification") and planned_output.get("clarification_questions"):
             shared["clarification_questions_for_user"] = planned_output["clarification_questions"]
             shared["planned_task_description"] = None 
             shared["planner_notes"] = None
+            shared["suggested_project_outline"] = None
             logger.debug("Returning 'clarification_needed'")
             return "clarification_needed"
         elif planned_output.get("planned_task_description"):
-            shared["planned_task_description"] = planned_output["planned_task_description"]
+            shared["planned_task_description"] = planned_output["planned_task_description"] # This is now a dict
             shared["planner_notes"] = planned_output.get("planner_notes")
-            shared["task_description"] = str(planned_output["planned_task_description"]) 
+            shared["suggested_project_outline"] = planned_output.get("suggested_project_structure")
+            # For DeveloperNode input compatibility and logging, we can create a string summary of the plan
+            shared["developer_task_description"] = json.dumps(planned_output["planned_task_description"], indent=2) 
             shared["clarification_questions_for_user"] = None 
             logger.debug("Returning 'plan_ready_for_code'")
             return "plan_ready_for_code"
@@ -200,121 +174,99 @@ class ArchitectPlannerNode(Node):
             shared["current_error_message"] = error_msg
             return "error_encountered"
 
-class DeveloperPrepInput(TypedDict):
-    task_description: str
-    planner_notes: Optional[str]
-    coding_standards_context: str
-    critique_feedback: str
-    feedback_history: str # This is a joined string
-    llm_models_config: Dict[str, str]
-
 class DeveloperNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        """Prepare input for code generation."""
-        developer_task_description = shared.get("developer_task_description")
-        if not developer_task_description:
-            logger.error("DeveloperNode: Missing developer_task_description in shared state")
-            return {"error": "Developer task description missing"}
-
+        logger.info("Entering DeveloperNode - Prep")
+        # planned_task_description is now a dict, so pass it as JSON string to prompt
+        planned_task_desc_obj = shared.get("planned_task_description")
+        if not isinstance(planned_task_desc_obj, dict):
+            logger.error("DeveloperNode: planned_task_description is not a dict or is missing.")
+            return {"error": "Planned task description (object) missing."}
+        
         return {
-            "task_description": developer_task_description,  # Key name matches test expectations
+            "planned_task_description_json_str": json.dumps(planned_task_desc_obj, indent=2),
             "planner_notes": shared.get("planner_notes", "N/A"),
             "coding_standards_context": shared.get("coding_standards_context", "N/A"),
-            "critique_feedback": shared.get("critique_feedback", "N/A"),
-            "feedback_history": shared.get("feedback_history", []),
+            "critique_feedback": shared.get("critique_feedback", "N/A (first attempt or no critique)"),
+            "feedback_history": "\n".join([f"- {item}" for item in shared.get("feedback_history", [])]) or "No prior feedback.",
             "llm_models_config": shared.get("llm_models_config", {})
         }
 
-    def exec(self, prep_res: Dict[str, Any]) -> Optional[str]:
-        # First check for prep errors
+    def exec(self, prep_res: Dict[str, Any]) -> Optional[Dict[str, Any]]: # Now returns project structure dict or None
         if prep_res.get("error"):
-            logger.error("DeveloperNode: Error from prep stage: %s", prep_res["error"])
-            return f"Error: {prep_res['error']}"
+            logger.error(f"DeveloperNode: Error from prep stage: {prep_res['error']}")
+            return {"error": f"Prep error: {prep_res['error']}"}
 
-        # Next, try to make the LLM call and check for JSON error response
-        if prep_res and prep_res.get("task_description"):  # Changed from developer_task_description
-            llm_model = prep_res["llm_models_config"].get("developer_llm", "gpt-4o")
-            dev_prompt = DEVELOPER_CODEGEN_PROMPT_TEMPLATE.format(
-                developer_task_description=prep_res["task_description"],  # Changed from developer_task_description
-                developer_notes=prep_res["planner_notes"],
-                coding_standards_context=prep_res["coding_standards_context"],
-                critique_message=prep_res["critique_feedback"],
-                full_feedback_history=prep_res["feedback_history"]
-            )
-            llm_response_str = call_llm(
-                messages=[{"role": "user", "content": dev_prompt}], 
-                model=llm_model, 
-                temperature=0.1,
-                expect_json=False
-            )
-            
-            # Check if LLM returned a JSON error response
-            try:
-                potential_error = json.loads(llm_response_str)
-                if isinstance(potential_error, dict) and "error" in potential_error:
-                    logger.error(f"DeveloperNode: LLM call failed: {potential_error['error']}")
-                    return f"Error: LLM call failed.\nDetails: {potential_error['error']}"
-            except json.JSONDecodeError:
-                # Not JSON, proceed to code extraction
-                code = extract_python_code(llm_response_str)
-                if not code:
-                    logger.error(f"DeveloperNode: Could not extract Python code. LLM response: {llm_response_str[:200]}...")
-                    return f"Error: No code block found.\nLLM_Response:\n{llm_response_str}"
-                return code
+        logger.info(f"DeveloperNode - Executing with task plan: {prep_res['planned_task_description_json_str'][:200]}...")
+        llm_model = prep_res["llm_models_config"].get("developer_llm", "gpt-4o")
+        
+        dev_prompt = DEVELOPER_CODEGEN_PROMPT_TEMPLATE.format(
+            planned_task_description_json_str=prep_res["planned_task_description_json_str"],
+            planner_notes=prep_res["planner_notes"],
+            coding_standards_context=prep_res["coding_standards_context"],
+            critique_message=prep_res["critique_feedback"],
+            full_feedback_history=prep_res["feedback_history"]
+        )
+        llm_response_str = call_llm(messages=[{"role": "user", "content": dev_prompt}], model=llm_model, temperature=0.1, expect_json=True) # Expecting JSON for project structure
+        
+        project_structure = SimpleJsonOutputParser().parse(llm_response_str)
 
-        # If we get here, either prep_res is None or missing required data
-        logger.error("DeveloperNode: Missing or invalid task description in prep_res: %s", prep_res)
-        return "Error: task description is missing or invalid. Cannot proceed with code generation."
+        if project_structure.get("error"):
+            logger.error(f"DeveloperNode: LLM error or failed to parse project structure JSON: {project_structure['error']}. Raw: {project_structure.get('raw_text','')[:200]}")
+            return {"error": f"Could not parse LLM output for project structure. Details: {project_structure.get('error')}", "raw_llm_response": project_structure.get('raw_text', llm_response_str)}
+        
+        # Validate basic project structure
+        if not isinstance(project_structure, dict) or "files" not in project_structure or not isinstance(project_structure["files"], list):
+            logger.error(f"DeveloperNode: Invalid project structure from LLM. Missing 'files' list. Got: {str(project_structure)[:200]}")
+            return {"error": "LLM returned invalid project structure format.", "raw_llm_response": llm_response_str}
 
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[str]):
+        return project_structure
+
+    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[Dict[str, Any]]):
         logger.info("DeveloperNode - Post")
         shared["refinement_count"] = shared.get("refinement_count", 0) + 1
 
-        if exec_res and "Error: No code block found" in exec_res:
-            shared["current_error_message"] = exec_res
-            shared["generated_code"] = None 
+        if exec_res is None or exec_res.get("error"):
+            error_detail = exec_res.get("details", exec_res.get("raw_llm_response", "Unknown error during code generation.")) if isinstance(exec_res, dict) else "Execution returned None"
+            shared["current_error_message"] = f"Developer Error: {exec_res.get('error', 'Code generation failed')}. Details: {str(error_detail)[:200]}"
+            shared["generated_project_structure"] = None 
             if "feedback_history" not in shared: shared["feedback_history"] = []
-            shared["feedback_history"].append(f"DevAttempt {shared['refinement_count']}: Failed to generate code. {exec_res}")
-            logger.error(f"DeveloperNode error: {exec_res}")
+            shared["feedback_history"].append(f"DevAttempt {shared['refinement_count']}: Failed to generate/parse code. {shared['current_error_message']}")
+            logger.error(f"DeveloperNode error: {shared['current_error_message']}")
             return "code_generation_failed"
         
-        shared["generated_code"] = exec_res
-        logger.debug(f"Generated code (attempt {shared['refinement_count']}):\n{exec_res}")
+        shared["generated_project_structure"] = exec_res # This is now a dict
+        logger.debug(f"Generated project structure (attempt {shared['refinement_count']}): {json.dumps(exec_res, indent=2)}")
         shared["critique_feedback"] = None 
         shared["current_error_message"] = None
         return "code_ready_for_tests"
 
-class TestCaseDesignerPrepInput(TypedDict):
-    planned_task_description: Dict[str, Any]
-    planner_notes: Optional[str]
-    llm_models_config: Dict[str, str]
-
 class TestCaseDesignerNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> TestCaseDesignerPrepInput:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering TestCaseDesignerNode - Prep")
+        planned_task_desc_obj = shared.get("planned_task_description")
+        if not isinstance(planned_task_desc_obj, dict):
+            return {"error": "Planned task description (object) missing for test design."}
+
         return {
-            "planned_task_description": shared.get("planned_task_description"),
+            "function_plan_json_str": json.dumps(planned_task_desc_obj, indent=2),
             "planner_notes": shared.get("planner_notes", ""),
             "llm_models_config": shared.get("llm_models_config", {})
         }
 
-    def exec(self, prep_res: TestCaseDesignerPrepInput) -> Optional[List[Dict[str, Any]]]:
-        plan_desc = prep_res["planned_task_description"]
-        if not plan_desc or not isinstance(plan_desc, dict):
-            logger.error(f"TestCaseDesignerNode: Invalid or missing planned_task_description: {plan_desc}")
-            return {"error": "Invalid plan for test case design"}
+    def exec(self, prep_res: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]: # Returns list of test_case dicts or error dict
+        if prep_res.get("error"):
+            logger.error(f"TestCaseDesignerNode: Error from prep: {prep_res['error']}")
+            return prep_res # Pass error dict through
 
-        function_plan_json_str = json.dumps(plan_desc, indent=2)
-        logger.info(f"TestCaseDesignerNode - Executing with plan: {function_plan_json_str[:200]}...")
-        
+        logger.info(f"TestCaseDesignerNode - Executing with plan: {prep_res['function_plan_json_str'][:200]}...")
         llm_model = prep_res["llm_models_config"].get("test_designer_llm", "gpt-4o") 
 
         test_case_prompt = TEST_CASE_DESIGNER_PROMPT_TEMPLATE.format(
-            function_plan_json_str=function_plan_json_str,
+            function_plan_json_str=prep_res["function_plan_json_str"],
             planner_notes=prep_res["planner_notes"]
         )
-        logger.debug(f"TestCaseDesigner Prompt (first 300 chars): {test_case_prompt[:300]}...")
-        response_str = call_llm(messages=[{"role": "user", "content": test_case_prompt}], model=llm_model, temperature=0.4)
+        response_str = call_llm(messages=[{"role": "user", "content": test_case_prompt}], model=llm_model, temperature=0.4, expect_json=True)
         response_json = SimpleJsonOutputParser().parse(response_str)
 
         if response_json.get("error"):
@@ -323,18 +275,19 @@ class TestCaseDesignerNode(Node):
 
         test_cases = response_json.get("test_cases")
         if not test_cases or not isinstance(test_cases, list):
-            logger.error(f"TestCaseDesignerNode: 'test_cases' key missing or not a list in LLM response: {response_json}")
+            logger.error(f"TestCaseDesignerNode: 'test_cases' key missing or not a list: {response_json}")
             return {"error": "LLM did not return a valid list of test cases"}
         
         valid_test_cases = []
+        planned_desc = json.loads(prep_res["function_plan_json_str"]) # Re-parse for function_name fallback
         for tc in test_cases:
             if isinstance(tc, dict) and "inputs" in tc and "expected_output" in tc and "description" in tc:
-                if isinstance(tc["inputs"], list): 
-                    tc["inputs"] = tuple(tc["inputs"]) 
-                elif not isinstance(tc["inputs"], tuple): 
-                    tc["inputs"] = (tc["inputs"],)
-                if "function_name" not in tc or not tc["function_name"]:
-                    tc["function_name"] = plan_desc.get("function_name", "unknown_function")
+                if isinstance(tc["inputs"], list): tc["inputs"] = tuple(tc["inputs"]) 
+                elif not isinstance(tc["inputs"], tuple): tc["inputs"] = (tc["inputs"],)
+                
+                # Ensure target_file and target_function are present, using plan as fallback
+                tc["target_file"] = tc.get("target_file") or planned_desc.get("target_file") or planned_desc.get("entry_point_file", "main.py")
+                tc["target_function"] = tc.get("target_function") or planned_desc.get("component_name") or planned_desc.get("main_function_to_test", "unknown_function")
                 valid_test_cases.append(tc)
             else:
                 logger.warning(f"Skipping malformed test case from LLM: {tc}")
@@ -342,12 +295,11 @@ class TestCaseDesignerNode(Node):
         if not valid_test_cases:
             logger.error("TestCaseDesignerNode: No valid test cases generated by LLM.")
             return {"error": "No valid test cases generated"}
-            
         return valid_test_cases
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[List[Dict[str, Any]]]):
         logger.info("TestCaseDesignerNode - Post")
-        if isinstance(exec_res, dict) and exec_res.get("error"):
+        if isinstance(exec_res, dict) and exec_res.get("error"): # Check if exec_res itself is an error dict
             shared["current_error_message"] = f"{exec_res['error']}: {str(exec_res.get('details', ''))[:200]}"
             shared["generated_test_cases"] = []
             logger.error(f"TestCaseDesignerNode error: {shared['current_error_message']}")
@@ -360,47 +312,43 @@ class TestCaseDesignerNode(Node):
         logger.debug(f"Generated test cases: {exec_res}")
         return "tests_ready"
 
-class QAPrepInput(TypedDict):
-    code_string: str
-    function_name: str
-    test_case: Dict[str, Any]
 
 class QANode(Node):
-    def prep(self, shared: Dict[str, Any]) -> Optional[QAPrepInput]:
+    def prep(self, shared: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         logger.info("Entering QANode - Prep")
-        code = shared.get("generated_code")
+        project_structure = shared.get("generated_project_structure")
         test_cases = shared.get("generated_test_cases")
         current_idx = shared.get("current_test_case_index", 0)
 
-        if not code:
-            logger.error("QANode: No generated code to test.")
-            return {"error": "No code to test"}  # type: ignore
+        if not project_structure or not project_structure.get("files"):
+            logger.error("QANode: No generated project structure to test.")
+            return {"error": "No project code to test"}
         if not test_cases or not isinstance(test_cases, list) or current_idx >= len(test_cases):
-            logger.info("QANode: No more test cases to run or test cases not generated/valid.")
-            return {"error": "No more tests or tests not found"}  # type: ignore
+            logger.info("QANode: No more test cases or tests not generated/valid.")
+            return {"error": "No more tests or tests not valid"}
         
         current_test_case = test_cases[current_idx]
-        function_name = current_test_case.get("function_name") or \
-                        (shared.get("planned_task_description", {}).get("function_name") if isinstance(shared.get("planned_task_description"), dict) else "unknown_function")
-
         return {
-            "code_string": code,
-            "function_name": function_name,
+            "project_structure": project_structure,
             "test_case": current_test_case
         }
 
-    def exec(self, prep_res: Optional[QAPrepInput]) -> Optional[Dict[str, Any]]:
+    def exec(self, prep_res: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         if not prep_res or prep_res.get("error"):
             error_msg = prep_res.get("error") if prep_res else "Prep failed for QANode"
             logger.error(f"QANode - Exec: Skipping due to prep error: {error_msg}")
             return {"status": "error", "message": error_msg, "test_case": prep_res.get("test_case") if prep_res else None, "actual_output": None}
 
-        code_string = prep_res["code_string"]
-        function_name = prep_res["function_name"]
+        project_structure = prep_res["project_structure"]
         test_case = prep_res["test_case"]
         
-        logger.info(f"QANode - Executing test: {test_case.get('description', 'N/A')} for function '{function_name}'")
-        single_test_results = code_tester_tool(code_string, function_name, [test_case])
+        # Target function and file are now part of each test_case
+        target_function = test_case.get("target_function")
+        target_file = test_case.get("target_file")
+        
+        logger.info(f"QANode - Executing test: {test_case.get('description', 'N/A')} for function '{target_function}' in file '{target_file}'")
+        # Pass project_structure and a list containing the single test_case
+        single_test_results = code_tester_tool(project_structure, [test_case])
         
         if not single_test_results: 
             logger.error("QANode: code_tester_tool returned empty result.")
@@ -409,11 +357,12 @@ class QANode(Node):
         return single_test_results[0] 
 
     def post(self, shared: Dict[str, Any], prep_res: Optional[Dict[str, Any]], exec_res: Optional[Dict[str, Any]]):
+        # (Post method logic remains the same as previously provided)
         logger.info("QANode - Post")
         if not exec_res or exec_res.get("status") == "error":
             error_msg = exec_res.get("message", "QA execution failed or was skipped.") if exec_res else "QA prep failed."
             logger.error(f"QANode error: {error_msg}")
-            shared["current_test_status"] = "error" # Specific status for tool/setup issue
+            shared["current_test_status"] = "error"
             shared["current_test_message"] = error_msg
             if "feedback_history" not in shared: shared["feedback_history"] = []
             shared["feedback_history"].append(f"QA Attempt {shared.get('refinement_count',0)}: Error during test execution - {error_msg}")
@@ -421,7 +370,7 @@ class QANode(Node):
 
         test_result = exec_res
         shared.setdefault("test_results_summary", []).append(test_result)
-        shared["current_test_status"] = test_result["status"] # This will be 'success', 'fail', 'runtime_error', 'compilation_error'
+        shared["current_test_status"] = test_result["status"] 
         shared["current_test_message"] = test_result["message"]
         logger.debug(f"Test result: {test_result['status']} - {test_result['message']}")
 
@@ -436,7 +385,7 @@ class QANode(Node):
         if shared["current_test_case_index"] >= len(shared.get("generated_test_cases", [])):
             all_current_tests_passed_this_round = all(
                 res['status'] == 'success' for res in shared['test_results_summary']
-                if res['test_case'] in shared.get("generated_test_cases", []) 
+                if res.get('test_case') in shared.get("generated_test_cases", []) 
             )
             shared["all_tests_passed"] = all_current_tests_passed_this_round
             logger.info(f"All tests run. Overall pass status for this version: {shared['all_tests_passed']}")
@@ -444,42 +393,41 @@ class QANode(Node):
         else:
             return "run_next_test"
 
-
-class ValidationPrepInput(TypedDict):
-    generated_code: str
-    task_description: str
-    planner_notes: str
-    validation_rules_context: str
-    llm_models_config: Dict[str, str]
-
 class ValidationNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> ValidationPrepInput:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering ValidationNode - Prep")
+        planned_task_desc_obj = shared.get("planned_task_description")
+        if not isinstance(planned_task_desc_obj, dict):
+            return {"error": "Planned task description (object) missing for validation."}
+
         return {
-            "generated_code": shared.get("generated_code"),
-            "task_description": shared.get("task_description", "N/A"),
+            "generated_project_structure": shared.get("generated_project_structure"),
+            "task_description_json_str": json.dumps(planned_task_desc_obj, indent=2),
             "planner_notes": shared.get("planner_notes", "N/A"),
             "validation_rules_context": shared.get("validation_rules_context", "N/A"),
             "llm_models_config": shared.get("llm_models_config", {})
         }
 
-    def exec(self, prep_res: ValidationPrepInput) -> Dict[str, Any]:
-        code = prep_res["generated_code"]
-        if not code:
-            logger.error("ValidationNode: No code to validate.")
-            return {"validation_passed": False, "issues_found": ["No code provided for validation."]}
+    def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
+        if prep_res.get("error"):
+            logger.error(f"ValidationNode: Error from prep: {prep_res['error']}")
+            return {"validation_passed": False, "issues_found": [prep_res['error']]}
+            
+        project_structure = prep_res["generated_project_structure"]
+        if not project_structure or not project_structure.get("files"):
+            logger.error("ValidationNode: No project structure/files to validate.")
+            return {"validation_passed": False, "issues_found": ["No project code provided for validation."]}
 
-        logger.info(f"ValidationNode - Executing for task: {prep_res['task_description'][:100]}...")
+        logger.info(f"ValidationNode - Executing for task (plan snippet): {prep_res['task_description_json_str'][:100]}...")
         llm_model = prep_res["llm_models_config"].get("validation_llm", "gpt-4o")
 
         val_prompt = VALIDATION_PROMPT_TEMPLATE.format(
-            task_description=prep_res["task_description"],
+            task_description_json_str=prep_res["task_description_json_str"],
             planner_notes=prep_res["planner_notes"],
-            code_to_validate=code,
+            project_structure_json_str=json.dumps(project_structure, indent=2), # Pass project structure as JSON string
             validation_rules_context=prep_res["validation_rules_context"]
         )
-        logger.debug(f"Validation Prompt (first 300 chars): {val_prompt[:300]}...")
-        response_str = call_llm(messages=[{"role": "user", "content": val_prompt}], model=llm_model, temperature=0.1)
+        response_str = call_llm(messages=[{"role": "user", "content": val_prompt}], model=llm_model, temperature=0.1, expect_json=True)
         validation_result = SimpleJsonOutputParser().parse(response_str)
         
         if validation_result.get("error"):
@@ -489,6 +437,7 @@ class ValidationNode(Node):
         return validation_result
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]):
+        # (Post method logic remains the same as previously provided)
         logger.info("ValidationNode - Post")
         if isinstance(exec_res, dict) and "validation_passed" in exec_res:
             shared["validation_status"] = "pass" if exec_res["validation_passed"] and not exec_res.get("issues_found") else "fail"
@@ -508,48 +457,49 @@ class ValidationNode(Node):
         if shared["validation_status"] != "pass" and shared["validation_issues"]:
             if "feedback_history" not in shared: shared["feedback_history"] = []
             shared["feedback_history"].append(f"Validation Issues (DevAttempt {shared.get('refinement_count',0)}): {'; '.join(shared['validation_issues'])}")
-        return "testing_error_or_done"
+        return "validation_done" # This action is used by app.py to decide flow.
 
-
-class CritiquePrepInput(TypedDict):
-    task_description: str
-    planner_notes: str
-    generated_code: str
-    test_failure_message: str
-    validation_issues: List[str]
-    user_rejection_reason: str
-    debugging_tips_context: str
-    llm_models_config: Dict[str, str]
 
 class CritiqueNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> CritiquePrepInput:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering CritiqueNode - Prep")
+        planned_task_desc_obj = shared.get("planned_task_description")
+        if not isinstance(planned_task_desc_obj, dict):
+            return {"error": "Planned task description (object) missing for critique."}
+        
+        project_structure_obj = shared.get("generated_project_structure")
+        if not isinstance(project_structure_obj, dict) or not project_structure_obj.get("files"):
+            return {"error": "Generated project structure missing or invalid for critique."}
+
         return {
-            "task_description": shared.get("task_description", "N/A"),
+            "task_description_json_str": json.dumps(planned_task_desc_obj, indent=2),
             "planner_notes": shared.get("planner_notes", "N/A"),
-            "generated_code": shared.get("generated_code", "# No code available"),
+            "project_structure_json_str": json.dumps(project_structure_obj, indent=2),
             "test_failure_message": shared.get("current_test_message", "N/A (or tests passed/not run)"),
-            "validation_issues": shared.get("validation_issues", []),
+            "validation_issues_list_str": "; ".join(shared.get("validation_issues", [])) if shared.get("validation_issues") else "N/A",
             "user_rejection_reason": shared.get("user_rejection_reason", "N/A"),
             "debugging_tips_context": shared.get("debugging_tips_context", "N/A"),
             "llm_models_config": shared.get("llm_models_config", {})
         }
 
-    def exec(self, prep_res: CritiquePrepInput) -> str:
+    def exec(self, prep_res: Dict[str, Any]) -> str:
+        if prep_res.get("error"):
+            logger.error(f"CritiqueNode: Error from prep: {prep_res['error']}")
+            return f"Error in critique prep: {prep_res['error']}"
+
         logger.info(f"CritiqueNode - Executing...")
         llm_model = prep_res["llm_models_config"].get("critique_llm", "gpt-4o-mini")
 
         critique_prompt = CRITIQUE_PROMPT_TEMPLATE.format(
-            task_description=prep_res["task_description"],
+            task_description_json_str=prep_res["task_description_json_str"],
             planner_notes=prep_res["planner_notes"],
-            code_in_question=prep_res["generated_code"],
+            project_structure_json_str=prep_res["project_structure_json_str"],
             test_failure_message=prep_res["test_failure_message"],
-            validation_issues_list="; ".join(prep_res["validation_issues"]) if prep_res["validation_issues"] else "N/A",
+            validation_issues_list_str=prep_res["validation_issues_list_str"],
             user_rejection_reason=prep_res["user_rejection_reason"],
             debugging_tips_context=prep_res["debugging_tips_context"]
         )
-        logger.debug(f"Critique Prompt (first 300 chars): {critique_prompt[:300]}...")
-        response_str = call_llm(messages=[{"role": "user", "content": critique_prompt}], model=llm_model, temperature=0.25)
+        response_str = call_llm(messages=[{"role": "user", "content": critique_prompt}], model=llm_model, temperature=0.25, expect_json=True)
         critique_json = SimpleJsonOutputParser().parse(response_str)
 
         if critique_json.get("error"):
@@ -561,57 +511,63 @@ class CritiqueNode(Node):
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: str):
         logger.info("CritiqueNode - Post")
-        shared["critique_feedback"] = exec_res # This will be used by DeveloperNode
-        
-        # The feedback_history is already updated by QA and Validation nodes before critique.
-        # CritiqueNode's output (exec_res) IS the feedback FOR the next dev attempt.
-        # The app.py will handle adding this *generated* critique to the DB.
-        # The shared["feedback_history"] is more for the DeveloperNode to see the sequence of events.
-
+        shared["critique_feedback"] = exec_res
         logger.debug(f"Generated critique: {exec_res}")
-        return "refine_code"
-
-
-class PackagePrepInput(TypedDict):
-    generated_code: str
-    planned_task_description: Dict[str, Any]
+        return "refine_code" # Signal to DeveloperNode to refine
 
 class PackageNode(Node):
-    def prep(self, shared: Dict[str, Any]) -> PackagePrepInput:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering PackageNode - Prep")
+        project_structure = shared.get("generated_project_structure")
+        planned_desc = shared.get("planned_task_description")
+
+        if not isinstance(project_structure, dict) or not project_structure.get("files"):
+             return {"error": "Generated project structure missing or invalid for packaging."}
+        if not isinstance(planned_desc, dict):
+            return {"error": "Planned task description (object) missing for packaging."}
+            
         return {
-            "generated_code": shared.get("generated_code"),
-            "planned_task_description": shared.get("planned_task_description", {})
+            "generated_project_structure": project_structure,
+            "planned_task_description": planned_desc
         }
 
-    def exec(self, prep_res: PackagePrepInput) -> Dict[str, Any]:
+    def exec(self, prep_res: Dict[str, Any]) -> Dict[str, Any]:
+        if prep_res.get("error"):
+            logger.error(f"PackageNode: Error from prep: {prep_res['error']}")
+            return prep_res # Pass error through
+
         logger.info("PackageNode - Executing")
-        code = prep_res["generated_code"]
+        project_structure = prep_res["generated_project_structure"]
         plan = prep_res["planned_task_description"]
-
-        # Check for missing code
-        if not code:
-            logger.error("PackageNode: No code provided for packaging")
-            return {"error": "generated_code missing"}
-
-        # Check for missing function name
-        function_name = plan.get("function_name") if isinstance(plan, dict) else None
-        if not function_name:
-            logger.error("PackageNode: No function name found in planned_task_description")
-            return {"error": "function_name missing"}
-
-        py_file_content = f"# Auto-generated by FlowForge AI (Simple SDLC App)\n# Function: {function_name}\n\n{code}\n"
-        readme_content = f"""# Function: {function_name}\n\n## Description from Plan\nThis function was automatically generated based on the following plan:\n```json\n{json.dumps(plan, indent=2)}\n```\n\n## Generated Code\n```python\n{code}\n```\n"""
-        logger.info(f"Packaging artifacts for function: {function_name}")
+        
+        main_component_name = plan.get("component_name", "unnamed_component")
+        
+        # For MVP, "packaging" just means collating the final structure and a summary.
+        # In a real app, this might create a ZIP, git commit, etc.
+        packaged_info = {
+            "project_files": project_structure.get("files", []),
+            "entry_point": project_structure.get("entry_point_file", "N/A"),
+            "main_component_tested": project_structure.get("main_function_to_test", main_component_name)
+        }
+        handoff_summary = f"Successfully generated and packaged project for component: '{main_component_name}'."
+        
+        logger.info(f"Packaging artifacts for project related to: {main_component_name}")
         return {
-            "code_file_content": py_file_content,
-            "readme_content": readme_content,
-            "function_name": function_name
+            "packaged_artifacts_info": packaged_info, # The dict of file contents
+            "handoff_summary": handoff_summary,
+            "main_component_name": main_component_name
         }
 
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, str]):
+    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Dict[str, Any]):
         logger.info("PackageNode - Post")
-        shared["packaged_artifacts_info"] = exec_res
-        shared["handoff_summary"] = f"Successfully generated and packaged function '{exec_res.get('function_name', 'N/A')}'."
-        logger.debug(f"Packaged artifacts for: {exec_res.get('function_name')}")
+        if exec_res.get("error"):
+            shared["current_error_message"] = f"Packaging Error: {exec_res['error']}"
+            shared["packaged_artifacts_info"] = None
+            shared["handoff_summary"] = "Packaging failed."
+            logger.error(f"PackageNode error: {shared['current_error_message']}")
+            return "error_encountered"
+
+        shared["packaged_artifacts_info"] = exec_res.get("packaged_artifacts_info")
+        shared["handoff_summary"] = exec_res.get("handoff_summary")
+        logger.debug(f"Packaged artifacts for: {exec_res.get('main_component_name')}")
         return "done"
