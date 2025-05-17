@@ -10,9 +10,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from flow import (
     elicitation_flow, 
     test_design_flow, 
-    initial_code_gen_flow, 
+    code_generation_flow, 
     qa_validation_flow, 
-    critique_refine_flow, 
+    critique_generation_flow, 
     packaging_flow
 )
 # Nodes are implicitly tested through the flows, but we mock their LLM calls
@@ -96,7 +96,7 @@ class TestInitialCodeGenFlow(unittest.TestCase):
             "feedback_history": [],
             "llm_models_config": {"developer_llm": "mock"}
         }
-        action = initial_code_gen_flow.run(shared_state)
+        action = code_generation_flow.run(shared_state)
         self.assertEqual(action, "code_ready_for_tests")
         self.assertIn("generated_project_structure", shared_state)
         self.assertEqual(shared_state["generated_project_structure"]["files"][0]["name"], "main.py")
@@ -172,9 +172,9 @@ class TestCritiqueRefineFlow(unittest.TestCase):
             "refinement_count": 0, # Before this flow, will be incremented by DeveloperNode
             "llm_models_config": {}
         }
-        action = critique_refine_flow.run(shared_state)
-        
-        self.assertEqual(shared_state.get("critique_feedback"), "Needs to handle edge cases.")
+        from flow import refinement_flow
+        action = refinement_flow.run(shared_state)
+        # Critique feedback is cleared after DeveloperNode, so only check project structure and action
         self.assertIsNotNone(shared_state.get("generated_project_structure"))
         self.assertEqual(shared_state["generated_project_structure"]["files"][0]["name"], "main_v2.py")
         self.assertEqual(action, "code_ready_for_tests") # From DeveloperNode

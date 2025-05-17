@@ -63,6 +63,15 @@ critique_generation_flow = Flow(start=critique_node)
 logger.info("Critique Generation Flow (CritiqueNode) created.")
 
 
+# Flow 5: Critique & Refine (runs after QA/Validation fails or user rejects)
+# Input: planned_task_description, generated_project_structure, test_failure_message, validation_issues, user_rejection_reason
+# Output: critique_feedback, then refined generated_project_structure
+refinement_developer_node = DeveloperNode()
+critique_node - "refine_code" >> refinement_developer_node
+refinement_flow = Flow(start=critique_node)
+logger.info("Refinement Flow (CritiqueNode >> DeveloperNode) created.")
+
+
 # Flow 6: Packaging (runs after user approves)
 # Input: final generated_project_structure, planned_task_description
 # Output: packaged_artifacts_info, handoff_summary
