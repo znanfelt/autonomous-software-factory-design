@@ -181,7 +181,7 @@ def add_code_version(task_id: int, code: str, iteration: int, db_file: str = DB_
     return execute_query(db_file, query, (task_id, code, iteration), last_row_id=True)
 
 def get_latest_code_version(task_id: int, db_file: str = DB_FILE) -> Optional[Dict[str, Any]]:
-    query = "SELECT code_version_id, generated_code, iteration_number FROM code_versions WHERE task_id = ? ORDER BY created_at DESC LIMIT 1"
+    query = "SELECT code_version_id, generated_code, iteration_number FROM code_versions WHERE task_id = ? ORDER BY code_version_id DESC LIMIT 1"
     row = execute_query(db_file, query, (task_id,), fetch_one=True)
     if row: return dict(row)
     return None
@@ -206,7 +206,7 @@ def get_test_results_for_version(code_version_id: int, db_file: str = DB_FILE) -
                 "test_case": {"description": row_val["test_case_description"]}, 
                 "status": row_val["status"],
                 "actual_output": json.loads(row_val["actual_output"]) if row_val["actual_output"] else None,
-                "message": row_val["message"]
+                "message": f"{row_val['test_case_description']}: {row_val['message']}"
             })
     return results
 

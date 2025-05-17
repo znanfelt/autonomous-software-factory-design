@@ -201,7 +201,7 @@ class ArchitectPlannerNode(Node):
             return "error_encountered"
 
 class DeveloperPrepInput(TypedDict):
-    developer_task_description: str
+    task_description: str
     planner_notes: Optional[str]
     coding_standards_context: str
     critique_feedback: str
@@ -209,12 +209,33 @@ class DeveloperPrepInput(TypedDict):
     llm_models_config: Dict[str, str]
 
 class DeveloperNode(Node):
-    def exec(self, prep_res: DeveloperPrepInput) -> Optional[str]:
-        # Check if LLM call returned an error response
-        if prep_res is not None:
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepare input for code generation."""
+        developer_task_description = shared.get("developer_task_description")
+        if not developer_task_description:
+            logger.error("DeveloperNode: Missing developer_task_description in shared state")
+            return {"error": "Developer task description missing"}
+
+        return {
+            "task_description": developer_task_description,  # Key name matches test expectations
+            "planner_notes": shared.get("planner_notes", "N/A"),
+            "coding_standards_context": shared.get("coding_standards_context", "N/A"),
+            "critique_feedback": shared.get("critique_feedback", "N/A"),
+            "feedback_history": shared.get("feedback_history", []),
+            "llm_models_config": shared.get("llm_models_config", {})
+        }
+
+    def exec(self, prep_res: Dict[str, Any]) -> Optional[str]:
+        # First check for prep errors
+        if prep_res.get("error"):
+            logger.error("DeveloperNode: Error from prep stage: %s", prep_res["error"])
+            return f"Error: {prep_res['error']}"
+
+        # Next, try to make the LLM call and check for JSON error response
+        if prep_res and prep_res.get("task_description"):  # Changed from developer_task_description
             llm_model = prep_res["llm_models_config"].get("developer_llm", "gpt-4o")
             dev_prompt = DEVELOPER_CODEGEN_PROMPT_TEMPLATE.format(
-                developer_task_description=prep_res["developer_task_description"],
+                developer_task_description=prep_res["task_description"],  # Changed from developer_task_description
                 developer_notes=prep_res["planner_notes"],
                 coding_standards_context=prep_res["coding_standards_context"],
                 critique_message=prep_res["critique_feedback"],
@@ -226,25 +247,24 @@ class DeveloperNode(Node):
                 temperature=0.1,
                 expect_json=False
             )
+            
+            # Check if LLM returned a JSON error response
             try:
                 potential_error = json.loads(llm_response_str)
                 if isinstance(potential_error, dict) and "error" in potential_error:
                     logger.error(f"DeveloperNode: LLM call failed: {potential_error['error']}")
                     return f"Error: LLM call failed.\nDetails: {potential_error['error']}"
             except json.JSONDecodeError:
-                pass
+                # Not JSON, proceed to code extraction
+                code = extract_python_code(llm_response_str)
+                if not code:
+                    logger.error(f"DeveloperNode: Could not extract Python code. LLM response: {llm_response_str[:200]}...")
+                    return f"Error: No code block found.\nLLM_Response:\n{llm_response_str}"
+                return code
 
-        # Check for missing developer_task_description
-        if prep_res is None or not prep_res.get("developer_task_description"):
-            logger.error("DeveloperNode: Missing or invalid developer_task_description in prep_res: %s", prep_res)
-            return "Error: developer_task_description is missing or invalid. Cannot proceed with code generation."
-
-        logger.info(f"DeveloperNode - Executing with task: {str(prep_res['developer_task_description'])[:100]}...")
-        code = extract_python_code(llm_response_str)
-        if not code:
-            logger.error(f"DeveloperNode: Could not extract Python code. LLM response: {llm_response_str[:200]}...")
-            return f"Error: No code block found.\nLLM_Response:\n{llm_response_str}"
-        return code
+        # If we get here, either prep_res is None or missing required data
+        logger.error("DeveloperNode: Missing or invalid task description in prep_res: %s", prep_res)
+        return "Error: task description is missing or invalid. Cannot proceed with code generation."
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[str]):
         logger.info("DeveloperNode - Post")
@@ -560,15 +580,26 @@ class PackageNode(Node):
     def prep(self, shared: Dict[str, Any]) -> PackagePrepInput:
         logger.info("Entering PackageNode - Prep")
         return {
-            "generated_code": shared.get("generated_code", "# No final code"),
+            "generated_code": shared.get("generated_code"),
             "planned_task_description": shared.get("planned_task_description", {})
         }
 
-    def exec(self, prep_res: PackagePrepInput) -> Dict[str, str]:
+    def exec(self, prep_res: PackagePrepInput) -> Dict[str, Any]:
         logger.info("PackageNode - Executing")
         code = prep_res["generated_code"]
         plan = prep_res["planned_task_description"]
-        function_name = plan.get("function_name", "unnamed_function") if isinstance(plan, dict) else "unnamed_function"
+
+        # Check for missing code
+        if not code:
+            logger.error("PackageNode: No code provided for packaging")
+            return {"error": "generated_code missing"}
+
+        # Check for missing function name
+        function_name = plan.get("function_name") if isinstance(plan, dict) else None
+        if not function_name:
+            logger.error("PackageNode: No function name found in planned_task_description")
+            return {"error": "function_name missing"}
+
         py_file_content = f"# Auto-generated by FlowForge AI (Simple SDLC App)\n# Function: {function_name}\n\n{code}\n"
         readme_content = f"""# Function: {function_name}\n\n## Description from Plan\nThis function was automatically generated based on the following plan:\n```json\n{json.dumps(plan, indent=2)}\n```\n\n## Generated Code\n```python\n{code}\n```\n"""
         logger.info(f"Packaging artifacts for function: {function_name}")
