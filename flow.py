@@ -2,9 +2,14 @@
 import logging
 from pocketflow import Flow
 from nodes import (
-    InitialRequestNode, ArchitectPlannerNode, DeveloperNode,
-    QANode, ValidationNode, CritiqueNode, PackageNode,
-    SecurityComplianceNode # Import the new node
+    InitialRequestNode,
+    ArchitectPlannerNode,
+    DeveloperNode,
+    QANode,
+    ValidationNode,
+    CritiqueNode,
+    PackageNode,
+    SecurityComplianceNode,  # Import the new node
 )
 
 logger = logging.getLogger(__name__)
@@ -18,29 +23,34 @@ logger.info("Elicitation Flow (InitialRequest >> ArchitectPlanner) created.")
 
 # Flow 2: Test Case Design
 from nodes import TestCaseDesignerNode as _TestCaseDesignerNode
+
 test_case_designer_node = _TestCaseDesignerNode()
 test_design_flow = Flow(start=test_case_designer_node)
 logger.info("Test Design Flow (TestCaseDesignerNode) created.")
 
 # Flow 3: Code Generation / Refinement
-developer_node = DeveloperNode() 
+developer_node = DeveloperNode()
 code_generation_flow = Flow(start=developer_node)
 logger.info("Code Generation/Refinement Flow (DeveloperNode) created.")
 
 # Flow 4: QA, Validation, and Security Compliance
 qa_node = QANode()
 validation_node = ValidationNode()
-security_compliance_node = SecurityComplianceNode() # Instantiate the new node
+security_compliance_node = SecurityComplianceNode()  # Instantiate the new node
 
 qa_node - "run_next_test" >> qa_node
-qa_node - "testing_error_or_done" >> validation_node 
-validation_node - "validation_done" >> security_compliance_node # After validation, do security check
-validation_node - "error_encountered" >> security_compliance_node # Even if validation has an error, try security check
+qa_node - "testing_error_or_done" >> validation_node
+(
+    validation_node - "validation_done" >> security_compliance_node
+)  # After validation, do security check
+(
+    validation_node - "error_encountered" >> security_compliance_node
+)  # Even if validation has an error, try security check
 
 # SecurityComplianceNode.post() returns "security_check_done" or "error_encountered"
-# The UI (app.py) will then check all statuses (tests, validation, security) 
+# The UI (app.py) will then check all statuses (tests, validation, security)
 # from shared_state before proceeding to HUMAN_REVIEW or CRITIQUE_CODE.
-qa_validation_security_flow = Flow(start=qa_node) # Renamed flow for clarity
+qa_validation_security_flow = Flow(start=qa_node)  # Renamed flow for clarity
 logger.info("QA, Validation & Security Flow created.")
 
 # Flow 5: Critique Generation

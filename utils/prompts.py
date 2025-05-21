@@ -1,4 +1,4 @@
-import json 
+import json
 
 ARCHITECT_PROMPT_TEMPLATE = """
 You are a Senior Software Architect. Your task is to make high-level technical decisions for a user's software request.
