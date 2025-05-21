@@ -23,12 +23,13 @@ The application allows a user to describe a Python function. A series of AI agen
   * **QA Agent:** Executes generated test cases against the code using a `code_tester_tool`.
   * **Validation Agent:** Checks code against basic project standards.
   * **Critique Agent:** Provides feedback to the Developer Agent if tests or validation fail, or if the user rejects the code.
+  * **Security/Compliance Agent:** Checks for basic security and compliance issues.
 * **Human-in-the-Loop (HITL):**
   * Initial requirement specification.
   * Clarification responses if the AI planner is unsure.
   * Review, approval, or rejection (with feedback) of generated code.
 * **Iterative Refinement:** The system can loop through critique and code regeneration up to a configurable number of times.
-* **RAG Context:** Simple file-based RAG for providing guidelines to agents (architectural, planning, coding, validation, debugging).
+* **RAG Context:** Simple file-based RAG for providing guidelines to agents (architectural, planning, coding, validation, debugging, security).
 * **SQLite Persistence:** Task progress, generated code, test results, and feedback are stored in an SQLite database.
 * **Dockerized:** The application is containerized for easy setup and consistent execution.
 
@@ -73,7 +74,7 @@ pocketflow_sft_dev_app/
 ├── output_artifacts/          # (Optional) For saving final packaged code
 ├── Dockerfile
 ├── requirements.txt
-└── README md                  # This file
+└── README.md                  # This file
 ```
 
 ## Setup & Running with Docker Compose
@@ -131,7 +132,7 @@ The application uses Streamlit to manage different UI stages. Each stage might t
 2. **Planning:** `ArchitectPlannerNode` processes the request. If clear, it creates a plan. If ambiguous, it generates clarification questions.
 3. **Clarification (HITL):** If questions are generated, the UI prompts the user. The refined request is fed back to the `ArchitectPlannerNode`. This loop continues until the plan is clear or max iterations are hit.
 4. **Test Design & Code Generation:** Once a plan is ready, `TestCaseDesignerNode` generates test cases. Then, `DeveloperNode` generates the initial Python code.
-5. **Automated Testing & Validation:** `QANode` executes each test case using `code_tester_tool`. `ValidationNode` checks the code against predefined rules.
+5. **Automated Testing & Validation:** `QANode` executes each test case using `code_tester_tool`. `ValidationNode` checks the code against predefined rules. `SecurityComplianceNode` checks for security/compliance issues.
 6. **Human Review (HITL):** The generated code, test results, and validation feedback are presented to the user.
     * **Approve:** The task moves to completion.
     * **Reject:** The user provides feedback.
