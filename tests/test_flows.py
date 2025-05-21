@@ -11,7 +11,7 @@ from flow import (
     elicitation_flow, 
     test_design_flow, 
     code_generation_flow, 
-    qa_validation_flow, 
+    qa_validation_security_flow, 
     critique_generation_flow, 
     packaging_flow
 )
@@ -104,7 +104,7 @@ class TestInitialCodeGenFlow(unittest.TestCase):
 class TestQAValidationFlow(unittest.TestCase):
     @patch('nodes.code_tester_tool')
     @patch('nodes.call_llm') # For ValidationNode
-    def test_qa_validation_flow_all_pass(self, mock_call_llm_validation, mock_code_tester_tool):
+    def test_qa_validation_security_flow_all_pass(self, mock_call_llm_validation, mock_code_tester_tool):
         mock_code_tester_tool.return_value = [{"status": "success", "message": "OK", "test_case": {"description": "desc"}, "actual_output": 1}]
         mock_call_llm_validation.return_value = json.dumps({"validation_passed": True, "issues_found": []})
         
@@ -119,14 +119,14 @@ class TestQAValidationFlow(unittest.TestCase):
             "validation_rules_context": "rules", # For ValidationNode
             "llm_models_config": {"validation_llm": "mock"}
         }
-        action = qa_validation_flow.run(shared_state) # Last node is ValidationNode, post() returns None ("default")
+        action = qa_validation_security_flow.run(shared_state) # Last node is ValidationNode, post() returns None ("default")
         self.assertIsNone(action) # Default action from ValidationNode's post
         self.assertTrue(shared_state["all_tests_passed"])
         self.assertEqual(shared_state["validation_status"], "pass")
 
     @patch('nodes.code_tester_tool')
     @patch('nodes.call_llm')
-    def test_qa_validation_flow_test_fail(self, mock_call_llm_validation, mock_code_tester_tool):
+    def test_qa_validation_security_flow_test_fail(self, mock_call_llm_validation, mock_code_tester_tool):
         mock_code_tester_tool.return_value = [{"status": "fail", "message": "Bad output", "test_case": {"description": "desc"}, "actual_output": 0}]
         # Validation might still be called, ensure it can run
         mock_call_llm_validation.return_value = json.dumps({"validation_passed": True, "issues_found": []})
@@ -140,7 +140,7 @@ class TestQAValidationFlow(unittest.TestCase):
             "planned_task_description": {"component_name":"foo", "target_file":"main.py"},
             "planner_notes": "", "validation_rules_context": "rules", "llm_models_config": {}
         }
-        action = qa_validation_flow.run(shared_state)
+        action = qa_validation_security_flow.run(shared_state)
         self.assertIsNone(action)
         self.assertFalse(shared_state["all_tests_passed"])
         # Validation might still pass if the code is valid but logically wrong for the test

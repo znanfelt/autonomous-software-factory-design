@@ -62,13 +62,29 @@ class ArchitectPlannerNode(Node): # Same as before
         architect_llm_model = llm_models_config.get("architect_llm", "gpt-4o"); arch_prompt = ARCHITECT_PROMPT_TEMPLATE.format(user_request=current_request, architectural_principles_context=arch_principles_ctx)
         arch_response_str = call_llm(messages=[{"role": "user", "content": arch_prompt}], model=architect_llm_model, temperature=0.1, expect_json=True)
         arch_decision = SimpleJsonOutputParser().parse(arch_response_str)
-        if arch_decision.get("error"): logger.error(f"Architect LLM error: {arch_decision.get('error')}"); return {"error": "Architect LLM failed", "details": arch_decision.get("raw_text", arch_response_str)}
+        if arch_decision.get("error"):
+            logger.error(f"Architect LLM error: {arch_decision.get("error")}")
+            return {"error": "Architect LLM failed", "details": arch_decision.get("raw_text", arch_response_str)}
         logger.info(f"Architect decision: {arch_decision}")
         planner_llm_model = llm_models_config.get("planner_llm", "gpt-4o")
         planner_codegen_prompt = PLANNER_CODEGEN_PROMPT_TEMPLATE.format(user_request_to_process=current_request, planning_guidelines_context=plan_guidelines_ctx, architect_decision_json_str=json.dumps(arch_decision))
         planner_response_str = call_llm(messages=[{"role": "user", "content": planner_codegen_prompt}], model=planner_llm_model, temperature=0.2, expect_json=True)
         planned_output = SimpleJsonOutputParser().parse(planner_response_str)
-        if planned_output.get("error"): logger.error(f"Planner Codegen LLM error: {planned_output.get('error')}"); return {"error": "Planner Codegen LLM failed", "details": planned_output.get("raw_text", planner_response_str), "architect_decision": arch_decision}
+        if planned_output.get("error"):
+            logger.error(f"Planner Codegen LLM error or parsing failed: {planned_output.get('error')}")
+            # Instead of returning immediately, try to get clarification questions
+            planner_clar_prompt = PLANNER_CLARIFICATION_PROMPT_TEMPLATE.format(
+                user_request_to_process=current_request,
+                planning_guidelines_context=plan_guidelines_ctx,
+                architect_decision_json_str=json.dumps(arch_decision)
+            )
+            clar_response_str = call_llm(messages=[{"role": "user", "content": planner_clar_prompt}], model=planner_llm_model, temperature=0.3, expect_json=True)
+            clar_output = SimpleJsonOutputParser().parse(clar_response_str)
+            if clar_output.get("error"):
+                logger.error(f"Planner Clarification LLM error: {clar_output.get('error')}")
+                return {"error": "Planner Clarification LLM failed", "details": clar_output.get("raw_text", clar_response_str), "architect_decision": arch_decision, "needs_clarification": True, "planned_output": {}}
+            logger.info(f"Planner generated clarification questions: {clar_output.get('clarification_questions')}")
+            return {"architect_decision": arch_decision, "planned_output": clar_output, "needs_clarification": True}
         if planned_output.get("planned_task_description") and not planned_output.get("clarification_questions"): logger.info(f"Planner created task desc: {str(planned_output['planned_task_description'])[:100]}..."); return {"architect_decision": arch_decision, "planned_output": planned_output, "needs_clarification": False}
         logger.info("Planner needs clarification. Asking questions.")
         planner_clar_prompt = PLANNER_CLARIFICATION_PROMPT_TEMPLATE.format(user_request_to_process=current_request, planning_guidelines_context=plan_guidelines_ctx, architect_decision_json_str=json.dumps(arch_decision))
@@ -104,7 +120,7 @@ class DeveloperNode(Node): # Same as before (with logging fix)
         dev_prompt=DEVELOPER_CODEGEN_PROMPT_TEMPLATE.format(**prep_res)
         llm_response_str=call_llm(messages=[{"role":"user","content":dev_prompt}],model=llm_model,temperature=0.1,expect_json=True)
         project_structure=SimpleJsonOutputParser().parse(llm_response_str)
-        if project_structure.get("error"): logger.error(f"DevNode: LLM/parse error: {project_structure['error']}. Raw: {project_structure.get('raw_text','')[:100]}"); return {"error":f"LLM project parse error. Details: {project_structure.get('error')}", "raw_llm_response":project_structure.get('raw_text',llm_response_str)}
+        if project_structure.get("error"): logger.error(f"DevNode: LLM/parse error: {project_structure['error']}. Raw: {project_structure.get('raw_text','')[:100]}"); return {"error":f"LLM project parse error. Details: {project_structure.get('error')}", "raw_llm_response":project_structure.get("raw_text",llm_response_str)}
         if not isinstance(project_structure,dict) or "files" not in project_structure or not isinstance(project_structure["files"],list): logger.error(f"DevNode: Invalid project struct: {str(project_structure)[:100]}"); return {"error":"LLM invalid project struct.", "raw_llm_response":llm_response_str}
         return project_structure
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[Dict[str, Any]]):
@@ -117,56 +133,6 @@ class DeveloperNode(Node): # Same as before (with logging fix)
             shared["generated_project_structure"]=None; shared.setdefault("feedback_history",[]).append(f"DevAtt.{current_attempt_number}: Fail gen/parse. {str(shared['current_error_message'])}"); return "code_generation_failed"
         shared["generated_project_structure"]=exec_res; logger.debug(f"Generated project (Att.{current_attempt_number}): {json.dumps(exec_res,indent=2)[:200]}...")
         shared["critique_feedback"]=None; shared["current_error_message"]=None; return "code_ready_for_tests"
-
-class TestCaseDesignerNode(Node): # Updated prep to include new context fields
-    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
-        logger.info("Entering TestCaseDesignerNode - Prep")
-        planned_task_desc_obj = shared.get("planned_task_description")
-        if not isinstance(planned_task_desc_obj, dict):
-            return {"error": "Planned task description (object) missing for test design."}
-        
-        current_project_structure = shared.get("generated_project_structure", {}) # Might be empty for initial design
-        critique_feedback = shared.get("critique_feedback", "N/A (No specific critique for this test design phase, or initial design)")
-
-        return {
-            "function_plan_json_str": json.dumps(planned_task_desc_obj, indent=2),
-            "planner_notes": shared.get("planner_notes", ""),
-            "current_project_structure_json_str": json.dumps(current_project_structure, indent=2),
-            "critique_feedback_for_tests": critique_feedback,
-            "llm_models_config": shared.get("llm_models_config", {})
-        }
-    # ... (exec and post remain the same as in the previous full nodes.py)
-    def exec(self, prep_res: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-        if prep_res.get("error"): return prep_res 
-        logger.info(f"TestCaseDesignerNode - Executing with plan: {prep_res['function_plan_json_str'][:100]}...")
-        llm_model = prep_res["llm_models_config"].get("test_designer_llm", "gpt-4o") 
-        test_case_prompt = TEST_CASE_DESIGNER_PROMPT_TEMPLATE.format(**prep_res) # Use unpacking
-        response_str = call_llm(messages=[{"role": "user", "content": test_case_prompt}], model=llm_model, temperature=0.4, expect_json=True)
-        response_json = SimpleJsonOutputParser().parse(response_str)
-        if response_json.get("error"): return {"error": "TC LLM failed", "details": response_json.get("raw_text",response_str)}
-        test_cases = response_json.get("test_cases")
-        if not test_cases or not isinstance(test_cases, list): return {"error": "LLM no valid test_cases list"}
-        valid_test_cases = []
-        planned_desc = json.loads(prep_res["function_plan_json_str"])
-        for tc in test_cases:
-            if isinstance(tc, dict) and "inputs" in tc and "expected_output" in tc and "description" in tc:
-                if isinstance(tc["inputs"], list): tc["inputs"] = tuple(tc["inputs"]) 
-                elif not isinstance(tc["inputs"], tuple): tc["inputs"] = (tc["inputs"],)
-                tc["target_file"] = tc.get("target_file") or planned_desc.get("target_file") or planned_desc.get("entry_point_file", "main.py")
-                tc["target_function"] = tc.get("target_function") or planned_desc.get("component_name") or planned_desc.get("main_function_to_test", "unknown_function")
-                valid_test_cases.append(tc)
-            else: logger.warning(f"Skipping malformed test case: {tc}")
-        if not valid_test_cases: return {"error": "No valid test cases generated"}
-        return valid_test_cases
-    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[List[Dict[str, Any]]]):
-        logger.info("TestCaseDesignerNode - Post")
-        if isinstance(exec_res, dict) and exec_res.get("error"):
-            shared["current_error_message"] = f"{exec_res['error']}: {str(exec_res.get('details', ''))[:200]}"
-            shared["generated_test_cases"] = []
-            return "error_encountered"
-        shared["generated_test_cases"] = exec_res
-        shared["current_test_case_index"] = 0; shared["all_tests_passed"] = False; shared["test_results_summary"] = [] 
-        return "tests_ready"
 
 class QANode(Node): # Same as before
     # ...
@@ -186,17 +152,22 @@ class QANode(Node): # Same as before
         logger.info("QANode - Post")
         if not exec_res or exec_res.get("status") == "error": 
             error_msg = exec_res.get("message", "QA exec failed.") if exec_res else "QA prep failed."
-            shared["current_test_status"] = exec_res.get("status", "error") if exec_res else "error"; shared["current_test_message"] = error_msg
+            shared["current_test_status"] = exec_res.get("status", "error") if exec_res else "error"
+            shared["current_test_message"] = error_msg
             shared.setdefault("test_results_summary", []).append(exec_res or {"status":"error", "message":error_msg, "test_case": prep_res.get("test_case") if prep_res else {}})
             shared["all_tests_passed"] = False 
-            shared.setdefault("feedback_history",[]).append(f"QA Error/Fail (DevAtt.{shared.get('refinement_count',0)} test '{exec_res.get('test_case',{}).get('description','N/A')}'): {error_msg}"); return "testing_error_or_done" 
-        shared.setdefault("test_results_summary", []).append(exec_res); shared["current_test_status"] = exec_res["status"]; shared["current_test_message"] = exec_res["message"]
+            shared.setdefault("feedback_history",[]).append(f"QA Error/Fail (DevAtt.{shared.get('refinement_count',0)} test '{exec_res.get('test_case',{}).get('description','N/A')}'): {error_msg}")
+            return "testing_error_or_done" 
+        shared.setdefault("test_results_summary", []).append(exec_res)
+        shared["current_test_status"] = exec_res["status"]
+        shared["current_test_message"] = exec_res["message"]
         if exec_res["status"] != "success":
             shared["all_tests_passed"] = False
             shared.setdefault("feedback_history",[]).append(f"Test Fail (DevAtt.{shared.get('refinement_count',0)} test '{exec_res['test_case'].get('description')}'): {exec_res['message']} (Actual: {exec_res.get('actual_output')})")
         shared["current_test_case_index"] = shared.get("current_test_case_index", 0) + 1
         if shared["current_test_case_index"] >= len(shared.get("generated_test_cases", [])):
-            if shared.get("all_tests_passed", True): shared["all_tests_passed"] = all(res['status']=='success' for res in shared['test_results_summary'])
+            # Always set all_tests_passed after last test
+            shared["all_tests_passed"] = all(res['status']=='success' for res in shared['test_results_summary'])
             logger.info(f"All tests run. Overall pass: {shared['all_tests_passed']}"); return "testing_error_or_done" 
         else: return "run_next_test"
 
@@ -220,12 +191,20 @@ class ValidationNode(Node): # Same as before
         logger.info("ValidationNode - Post")
         if isinstance(exec_res,dict) and "validation_passed" in exec_res:
             shared["validation_status"]="pass" if exec_res["validation_passed"] and not exec_res.get("issues_found") else "fail"
-            shared["validation_issues"]=exec_res.get("issues_found",[]); 
-            if not isinstance(shared["validation_issues"],list):shared["validation_issues"]=[str(shared["validation_issues"])] if shared["validation_issues"] else []
-            if exec_res.get("validation_passed") and shared["validation_issues"]: shared["validation_status"]="fail";shared["validation_issues"].append("Consistency: LLM pass but listed issues.")
-        else: shared["validation_status"]="error";shared["validation_issues"]=[str(exec_res.get("details","Validation agent malformed."))]
+            shared["validation_issues"]=exec_res.get("issues_found",[])
+            if not isinstance(shared["validation_issues"],list):
+                shared["validation_issues"]=[str(shared["validation_issues"])] if shared["validation_issues"] else []
+            if exec_res.get("validation_passed") and shared["validation_issues"]:
+                shared["validation_status"]="fail"
+                shared["validation_issues"].append("Consistency: LLM pass but listed issues.")
+        else:
+            shared["validation_status"]="error"
+            shared["validation_issues"]=[str(exec_res.get("details","Validation agent malformed."))]
         if shared["validation_status"]!="pass" and shared["validation_issues"]:
             shared.setdefault("feedback_history",[]).append(f"Validation Issues (DevAtt.{shared.get('refinement_count',0)}): {'; '.join(shared['validation_issues'])}")
+        # LEGACY: For flows that expect None if validation passes, return None if status is pass, else 'validation_done'
+        if shared["validation_status"] == "pass":
+            return None
         return "validation_done"
 
 # --- NEW NODE ---
@@ -300,7 +279,7 @@ class CritiqueNode(Node): # Same as before
         llm_model=prep_res["llm_models_config"].get("critique_llm","gpt-4o-mini"); critique_prompt=CRITIQUE_PROMPT_TEMPLATE.format(**prep_res)
         response_str=call_llm(messages=[{"role":"user","content":critique_prompt}],model=llm_model,temperature=0.25,expect_json=True)
         critique_json=SimpleJsonOutputParser().parse(response_str)
-        if critique_json.get("error"): return f"Critique LLM error: {critique_json['error']}. Details: {critique_json.get('raw_text',response_str)[:100]}"
+        if critique_json.get("error"): return f"Critique LLM error: {critique_json['error']}. Details: {critique_json.get("raw_text",response_str)[:100]}"
         return critique_json.get("critique_feedback","Critique LLM no feedback.")
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: str):
         logger.info("CritiqueNode - Post"); shared["critique_feedback"]=exec_res; logger.debug(f"Generated critique: {exec_res}"); return "refine_code" 
@@ -323,3 +302,50 @@ class PackageNode(Node): # Same as before
         logger.info("PackageNode - Post")
         if exec_res.get("error"): shared["current_error_message"]=f"Packaging Error: {exec_res['error']}";shared["packaged_artifacts_info"]=None;shared["handoff_summary"]="Packaging failed."; return "error_encountered"
         shared["packaged_artifacts_info"]=exec_res.get("packaged_artifacts_info"); shared["handoff_summary"]=exec_res.get("handoff_summary"); return "done"
+
+class TestCaseDesignerNode(Node):
+    def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
+        logger.info("Entering TestCaseDesignerNode - Prep")
+        planned_task_desc_obj = shared.get("planned_task_description")
+        if not isinstance(planned_task_desc_obj, dict):
+            return {"error": "Planned task description (object) missing for test design."}
+        current_project_structure = shared.get("generated_project_structure", {})
+        critique_feedback = shared.get("critique_feedback", "N/A (No specific critique for this test design phase, or initial design)")
+        return {
+            "function_plan_json_str": json.dumps(planned_task_desc_obj, indent=2),
+            "planner_notes": shared.get("planner_notes", ""),
+            "current_project_structure_json_str": json.dumps(current_project_structure, indent=2),
+            "critique_feedback_for_tests": critique_feedback,
+            "llm_models_config": shared.get("llm_models_config", {})
+        }
+    def exec(self, prep_res: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        if prep_res.get("error"): return prep_res
+        logger.info(f"TestCaseDesignerNode - Executing with plan: {prep_res['function_plan_json_str'][:100]}...")
+        llm_model = prep_res["llm_models_config"].get("test_designer_llm", "gpt-4o")
+        test_case_prompt = TEST_CASE_DESIGNER_PROMPT_TEMPLATE.format(**prep_res)
+        response_str = call_llm(messages=[{"role": "user", "content": test_case_prompt}], model=llm_model, temperature=0.4, expect_json=True)
+        response_json = SimpleJsonOutputParser().parse(response_str)
+        if response_json.get("error"): return {"error": "TC LLM failed", "details": response_json.get("raw_text",response_str)}
+        test_cases = response_json.get("test_cases")
+        if not test_cases or not isinstance(test_cases, list): return {"error": "LLM no valid test_cases list"}
+        valid_test_cases = []
+        planned_desc = json.loads(prep_res["function_plan_json_str"])
+        for tc in test_cases:
+            if isinstance(tc, dict) and "inputs" in tc and "expected_output" in tc and "description" in tc:
+                if isinstance(tc["inputs"], list): tc["inputs"] = tuple(tc["inputs"])
+                elif not isinstance(tc["inputs"], tuple): tc["inputs"] = (tc["inputs"],)
+                tc["target_file"] = tc.get("target_file") or planned_desc.get("target_file") or planned_desc.get("entry_point_file", "main.py")
+                tc["target_function"] = tc.get("target_function") or planned_desc.get("component_name") or planned_desc.get("main_function_to_test", "unknown_function")
+                valid_test_cases.append(tc)
+            else: logger.warning(f"Skipping malformed test case: {tc}")
+        if not valid_test_cases: return {"error": "No valid test cases generated"}
+        return valid_test_cases
+    def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: Optional[List[Dict[str, Any]]]):
+        logger.info("TestCaseDesignerNode - Post")
+        if isinstance(exec_res, dict) and exec_res.get("error"):
+            shared["current_error_message"] = f"{exec_res['error']}: {str(exec_res.get('details', ''))[:200]}"
+            shared["generated_test_cases"] = []
+            return "error_encountered"
+        shared["generated_test_cases"] = exec_res
+        shared["current_test_case_index"] = 0; shared["all_tests_passed"] = False; shared["test_results_summary"] = []
+        return "tests_ready"

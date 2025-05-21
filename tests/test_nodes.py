@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from nodes import (
     DeveloperNode, InitialRequestNode, ArchitectPlannerNode, 
     TestCaseDesignerNode, QANode, ValidationNode, CritiqueNode, PackageNode,
-    SimpleJsonOutputParser 
+    SecurityComplianceNode
 )
 from utils.prompts import ( 
     DEVELOPER_CODEGEN_PROMPT_TEMPLATE 

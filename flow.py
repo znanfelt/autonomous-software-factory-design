@@ -3,7 +3,7 @@ import logging
 from pocketflow import Flow
 from nodes import (
     InitialRequestNode, ArchitectPlannerNode, DeveloperNode,
-    TestCaseDesignerNode, QANode, ValidationNode, CritiqueNode, PackageNode,
+    QANode, ValidationNode, CritiqueNode, PackageNode,
     SecurityComplianceNode # Import the new node
 )
 
@@ -17,7 +17,8 @@ elicitation_flow = Flow(start=initial_request_node)
 logger.info("Elicitation Flow (InitialRequest >> ArchitectPlanner) created.")
 
 # Flow 2: Test Case Design
-test_case_designer_node = TestCaseDesignerNode()
+from nodes import TestCaseDesignerNode as _TestCaseDesignerNode
+test_case_designer_node = _TestCaseDesignerNode()
 test_design_flow = Flow(start=test_case_designer_node)
 logger.info("Test Design Flow (TestCaseDesignerNode) created.")
 
@@ -42,14 +43,17 @@ validation_node - "error_encountered" >> security_compliance_node # Even if vali
 qa_validation_security_flow = Flow(start=qa_node) # Renamed flow for clarity
 logger.info("QA, Validation & Security Flow created.")
 
-
 # Flow 5: Critique Generation
 critique_node = CritiqueNode()
 critique_generation_flow = Flow(start=critique_node)
 logger.info("Critique Generation Flow (CritiqueNode) created.")
 
-
 # Flow 6: Packaging
 package_node = PackageNode()
 packaging_flow = Flow(start=package_node)
 logger.info("Packaging Flow (PackageNode) created.")
+
+# Flow 7: Critique & Refine (CritiqueNode -> DeveloperNode)
+refinement_flow = Flow(start=critique_node)
+critique_node - "refine_code" >> developer_node
+logger.info("Refinement Flow (CritiqueNode >> DeveloperNode) created.")
