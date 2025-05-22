@@ -141,6 +141,32 @@ The application uses Streamlit to manage different UI stages. Each stage might t
 
 SQLite is used to store the state of each task, including all generated artifacts and feedback, allowing for persistence.
 
+## Troubleshooting: Docker/Streamlit Import Errors
+
+If you see errors like `KeyError: 'utils'` or `KeyError: 'nodes'` in Docker logs:
+
+* Ensure all imports in your code are absolute (e.g., `from utils.prompts import ...` not relative imports).
+* Add `ENV PYTHONPATH=/app` to your Dockerfile (assuming your code is in `/app` in the container).
+* Make sure you run Streamlit from the project root (`WORKDIR /app`).
+* Rebuild your Docker image after making these changes.
+
+**Dockerfile best practice for import issues in Streamlit:**
+
+Add this to ensure absolute imports work in Docker/Streamlit:
+
+```dockerfile
+ENV PYTHONPATH=/app
+```
+
+And make sure your Dockerfile has:
+
+```dockerfile
+WORKDIR /app
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.runOnSave=true"]
+```
+
+If you see `KeyError: 'utils'` or `KeyError: 'nodes'`, this is almost always a Python import/module path issue in Docker. See the troubleshooting section above.
+
 ## Future Enhancements
 
 * More sophisticated RAG using LlamaIndex or similar.
