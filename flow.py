@@ -1,4 +1,6 @@
-# flow.py
+"""
+Flow definitions for the SDLC PocketFlow system.
+"""
 import logging
 from pocketflow import Flow
 from nodes import (
@@ -9,7 +11,8 @@ from nodes import (
     ValidationNode,
     CritiqueNode,
     PackageNode,
-    SecurityComplianceNode,  # Import the new node
+    SecurityComplianceNode,
+    TestCaseDesignerNode,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,9 +25,7 @@ elicitation_flow = Flow(start=initial_request_node)
 logger.info("Elicitation Flow (InitialRequest >> ArchitectPlanner) created.")
 
 # Flow 2: Test Case Design
-from nodes import TestCaseDesignerNode as _TestCaseDesignerNode
-
-test_case_designer_node = _TestCaseDesignerNode()
+test_case_designer_node = TestCaseDesignerNode()
 test_design_flow = Flow(start=test_case_designer_node)
 logger.info("Test Design Flow (TestCaseDesignerNode) created.")
 

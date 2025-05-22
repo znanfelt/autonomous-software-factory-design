@@ -1,9 +1,10 @@
-# nodes.py
+"""
+Node definitions for the SDLC PocketFlow system.
+"""
 import logging
 import json
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
 import re
-
+from typing import Any, Dict, List, Optional
 from pocketflow import Node
 from utils.call_llm import call_llm
 from utils.tools import extract_project_structure_from_llm, code_tester_tool
@@ -15,14 +16,13 @@ from utils.prompts import (
     TEST_CASE_DESIGNER_PROMPT_TEMPLATE,
     VALIDATION_PROMPT_TEMPLATE,
     CRITIQUE_PROMPT_TEMPLATE,
-    SECURITY_COMPLIANCE_PROMPT_TEMPLATE,  # New
+    SECURITY_COMPLIANCE_PROMPT_TEMPLATE,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class SimpleJsonOutputParser:  # Same as before
-    # ... (parser code) ...
+class SimpleJsonOutputParser:
     def parse(self, text: str) -> Any:
         try:
             match_md_json = re.search(
@@ -58,8 +58,7 @@ class SimpleJsonOutputParser:  # Same as before
             return {"error": f"Unexpected parsing error: {e}", "raw_text": text}
 
 
-class InitialRequestNode(Node):  # Same as before
-    # ...
+class InitialRequestNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Optional[str]:
         logger.info("Entering InitialRequestNode - Prep")
         return shared.get("user_raw_request")
@@ -84,8 +83,7 @@ class InitialRequestNode(Node):  # Same as before
         return "default"
 
 
-class ArchitectPlannerNode(Node):  # Same as before
-    # ...
+class ArchitectPlannerNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(
             f"ArchitectPlannerNode - Prep. ID: {id(shared)}. planner_iter: {shared.get('planner_iteration_count')}"
@@ -122,7 +120,7 @@ class ArchitectPlannerNode(Node):  # Same as before
         )
         arch_decision = SimpleJsonOutputParser().parse(arch_response_str)
         if arch_decision.get("error"):
-            logger.error(f"Architect LLM error: {arch_decision.get("error")}")
+            logger.error(f"Architect LLM error: {arch_decision.get('error')}")
             return {
                 "error": "Architect LLM failed",
                 "details": arch_decision.get("raw_text", arch_response_str),
@@ -145,7 +143,6 @@ class ArchitectPlannerNode(Node):  # Same as before
             logger.error(
                 f"Planner Codegen LLM error or parsing failed: {planned_output.get('error')}"
             )
-            # Instead of returning immediately, try to get clarification questions
             planner_clar_prompt = PLANNER_CLARIFICATION_PROMPT_TEMPLATE.format(
                 user_request_to_process=current_request,
                 planning_guidelines_context=plan_guidelines_ctx,
@@ -225,7 +222,7 @@ class ArchitectPlannerNode(Node):  # Same as before
         )
         shared["planner_iteration_count"] = (
             shared.get("planner_iteration_count", -1) + 1
-        )  # Ensure it starts at 0 then increments
+        )
         logger.info(
             f"ArchitectPlannerNode: planner_iteration_count in shared is now: {shared['planner_iteration_count']}"
         )
@@ -268,8 +265,7 @@ class ArchitectPlannerNode(Node):  # Same as before
             return "error_encountered"
 
 
-class DeveloperNode(Node):  # Same as before (with logging fix)
-    # ...
+class DeveloperNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(
             f"DeveloperNode - Prep. ID shared: {id(shared)}. refinement_count: {shared.get('refinement_count')}"
@@ -376,8 +372,7 @@ class DeveloperNode(Node):  # Same as before (with logging fix)
         return "code_ready_for_tests"
 
 
-class QANode(Node):  # Same as before
-    # ...
+class QANode(Node):
     def prep(self, shared: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         logger.info("Entering QANode - Prep")
         project_structure = shared.get("generated_project_structure")
@@ -457,7 +452,6 @@ class QANode(Node):  # Same as before
         if shared["current_test_case_index"] >= len(
             shared.get("generated_test_cases", [])
         ):
-            # Always set all_tests_passed after last test
             shared["all_tests_passed"] = all(
                 res["status"] == "success" for res in shared["test_results_summary"]
             )
@@ -467,8 +461,7 @@ class QANode(Node):  # Same as before
             return "run_next_test"
 
 
-class ValidationNode(Node):  # Same as before
-    # ...
+class ValidationNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering ValidationNode - Prep")
         planned_task_desc_obj = shared.get("planned_task_description")
@@ -541,13 +534,11 @@ class ValidationNode(Node):  # Same as before
             shared.setdefault("feedback_history", []).append(
                 f"Validation Issues (DevAtt.{shared.get('refinement_count',0)}): {'; '.join(shared['validation_issues'])}"
             )
-        # LEGACY: For flows that expect None if validation passes, return None if status is pass, else 'validation_done'
         if shared["validation_status"] == "pass":
             return None
         return "validation_done"
 
 
-# --- NEW NODE ---
 class SecurityComplianceNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering SecurityComplianceNode - Prep")
@@ -589,7 +580,7 @@ class SecurityComplianceNode(Node):
         )
         llm_model = prep_res["llm_models_config"].get(
             "validation_llm", "gpt-4o"
-        )  # Reuse validation model or define a new one
+        )
 
         sec_prompt = SECURITY_COMPLIANCE_PROMPT_TEMPLATE.format(**prep_res)
 
@@ -660,11 +651,10 @@ class SecurityComplianceNode(Node):
             shared.setdefault("feedback_history", []).append(
                 f"Security/Compliance Issues (DevAttempt {shared.get('refinement_count',0)}): {'; '.join(shared['security_compliance_issues'])}"
             )
-        return "security_check_done"  # Action for the flow
+        return "security_check_done"
 
 
-class CritiqueNode(Node):  # Same as before
-    # ...
+class CritiqueNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering CritiqueNode - Prep")
         planned_task_desc_obj = shared.get("planned_task_description")
@@ -704,7 +694,7 @@ class CritiqueNode(Node):  # Same as before
         )
         critique_json = SimpleJsonOutputParser().parse(response_str)
         if critique_json.get("error"):
-            return f"Critique LLM error: {critique_json['error']}. Details: {critique_json.get("raw_text",response_str)[:100]}"
+            return f"Critique LLM error: {critique_json['error']}. Details: {critique_json.get('raw_text',response_str)[:100]}"
         return critique_json.get("critique_feedback", "Critique LLM no feedback.")
 
     def post(self, shared: Dict[str, Any], prep_res: Dict[str, Any], exec_res: str):
@@ -714,8 +704,7 @@ class CritiqueNode(Node):  # Same as before
         return "refine_code"
 
 
-class PackageNode(Node):  # Same as before
-    # ...
+class PackageNode(Node):
     def prep(self, shared: Dict[str, Any]) -> Dict[str, Any]:
         logger.info("Entering PackageNode - Prep")
         project_structure = shared.get("generated_project_structure")

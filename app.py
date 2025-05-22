@@ -1,5 +1,6 @@
-# app.py
-import streamlit as st
+"""
+Main Streamlit app for the SDLC PocketFlow system.
+"""
 import os
 import json
 import logging
@@ -7,9 +8,7 @@ from pathlib import Path
 import sys
 from datetime import datetime
 from typing import Dict, Any, List, Optional
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import streamlit as st
 
 from pocketflow import Flow
 from nodes import (
@@ -21,7 +20,7 @@ from nodes import (
     ValidationNode,
     CritiqueNode,
     PackageNode,
-    SecurityComplianceNode,  # Import the new node
+    SecurityComplianceNode,
 )
 from utils.database import (
     init_db,
@@ -33,7 +32,7 @@ from utils.database import (
     log_test_run_result,
     get_test_results_for_version,
     log_validation_result,
-    get_validation_log_for_version,  # Added get_validation_log_for_version
+    get_validation_log_for_version,
     log_feedback,
     get_feedback_history_for_task,
     add_packaged_artifact,
@@ -55,10 +54,13 @@ from flow import (
     elicitation_flow,
     test_design_flow,
     code_generation_flow,
-    qa_validation_security_flow,  # Use the updated flow that includes security
+    qa_validation_security_flow,
     critique_generation_flow,
     packaging_flow,
 )
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), ".")))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(name)s - %(message)s"
@@ -72,7 +74,7 @@ RAG_CONTEXT_KEYS = [
     "coding_standards_context",
     "validation_rules_context",
     "debugging_tips_context",
-    "security_compliance_rules_context",  # New RAG context
+    "security_compliance_rules_context",
 ]
 MAX_PLANNER_ITERATIONS = int(os.getenv("MAX_PLANNER_ITERATIONS", "2"))
 MAX_REFINEMENTS = int(os.getenv("MAX_REFINEMENTS", "3"))
@@ -84,7 +86,7 @@ LLM_MODELS_CONFIG = {
     "validation_llm": os.getenv("VALIDATION_LLM_MODEL", "gpt-3.5-turbo"),
     "security_llm": os.getenv(
         "SECURITY_LLM_MODEL", "gpt-3.5-turbo"
-    ),  # Model for security node
+    ),
     "critique_llm": os.getenv("CRITIQUE_LLM_MODEL", "gpt-4o-mini"),
 }
 
@@ -118,8 +120,8 @@ if "app_initialized" not in st.session_state:
     st.session_state.all_tests_passed = False
     st.session_state.validation_status = None
     st.session_state.validation_issues = []
-    st.session_state.security_compliance_status = None  # New
-    st.session_state.security_compliance_issues = []  # New, ensure list
+    st.session_state.security_compliance_status = None
+    st.session_state.security_compliance_issues = []
     st.session_state.user_rejection_reason = ""
     st.session_state.critique_feedback = None
     st.session_state.feedback_history = []
@@ -135,7 +137,6 @@ if "app_initialized" not in st.session_state:
 
 
 def reset_for_new_task(go_to_input_stage=True):
-    # ... (same as previous version, ensure new security fields are reset)
     preserve_keys = RAG_CONTEXT_KEYS + ["app_initialized", "rag_contexts_loaded"]
     preserved_values = {k: st.session_state.get(k) for k in preserve_keys}
     st.session_state.clear()
@@ -161,8 +162,8 @@ def reset_for_new_task(go_to_input_stage=True):
     st.session_state.all_tests_passed = False
     st.session_state.validation_status = None
     st.session_state.validation_issues = []
-    st.session_state.security_compliance_status = None  # New
-    st.session_state.security_compliance_issues = []  # New
+    st.session_state.security_compliance_status = None
+    st.session_state.security_compliance_issues = []
     st.session_state.user_rejection_reason = ""
     st.session_state.critique_feedback = None
     st.session_state.feedback_history = []
@@ -179,7 +180,6 @@ def display_error():
 
 
 def get_shared_for_flow() -> Dict[str, Any]:
-    # ... (ensure new security fields and RAG context are copied)
     shared = {}
     keys_to_copy = [
         "user_raw_request",
@@ -199,7 +199,7 @@ def get_shared_for_flow() -> Dict[str, Any]:
         "validation_status",
         "validation_issues",
         "security_compliance_status",
-        "security_compliance_issues",  # New
+        "security_compliance_issues",
         "user_rejection_reason",
         "critique_feedback",
         "feedback_history",
@@ -215,7 +215,6 @@ def get_shared_for_flow() -> Dict[str, Any]:
     shared["llm_models_config"] = LLM_MODELS_CONFIG
     shared["max_planner_iterations"] = MAX_PLANNER_ITERATIONS
     shared["max_refinements"] = MAX_REFINEMENTS
-    # Ensure JSON string versions are created for prompts
     if isinstance(shared.get("planned_task_description"), dict):
         shared["task_description_json_str"] = json.dumps(
             shared["planned_task_description"], indent=2
@@ -224,9 +223,6 @@ def get_shared_for_flow() -> Dict[str, Any]:
         shared["project_structure_json_str"] = json.dumps(
             shared["generated_project_structure"], indent=2
         )
-    # Removed developer_task_description and architect_decision_json_str as they are less directly used by nodes
-    # Nodes requiring these should get them from the primary structured fields (planned_task_description, architectural_decision)
-    # and format them as needed within their prep or exec.
     shared["suggested_project_outline_json_str"] = json.dumps(
         shared.get("suggested_project_outline", []), indent=2
     )
@@ -235,7 +231,6 @@ def get_shared_for_flow() -> Dict[str, Any]:
 
 
 def load_task_into_session(task_id: int):
-    # ... (ensure new security fields are loaded from DB if present)
     logger.info(f"LOAD_TASK: Attempting for task_id: {task_id}")
     loaded_db_data = load_task_state_from_db(task_id)
     if loaded_db_data:
@@ -255,7 +250,7 @@ def load_task_into_session(task_id: int):
         if not isinstance(st.session_state.get("validation_issues"), list):
             st.session_state.validation_issues = []
         if not isinstance(st.session_state.get("security_compliance_issues"), list):
-            st.session_state.security_compliance_issues = []  # New
+            st.session_state.security_compliance_issues = []
         logger.info(
             f"LOAD_TASK: Successfully loaded task {st.session_state.active_task_id}. UI stage set to: {st.session_state.ui_stage}"
         )
@@ -304,7 +299,6 @@ if current_ui_stage == "TASK_SELECTION":
             st.divider()
 
 elif current_ui_stage == "INPUT_REQUIREMENTS":
-    # ... (largely same, ensure DB status updates to "INPUT_REQUIREMENTS" if re-entering from error)
     st.header("1. Describe Your Python Project/Function")
     user_input_key = f"raw_req_v8_{st.session_state.get('active_task_id', 'new')}"
     user_input = st.text_area(
@@ -332,7 +326,7 @@ elif current_ui_stage == "INPUT_REQUIREMENTS":
                 st.session_state.active_task_id = task_id_new
                 active_task_id = task_id_new
             else:
-                active_task_id = st.session_state.active_task_id  # Use existing
+                active_task_id = st.session_state.active_task_id
                 st.session_state.user_raw_request = user_input
                 st.session_state.current_request_for_planner = user_input
                 update_task_field(active_task_id, "initial_request", user_input)
@@ -358,7 +352,7 @@ elif current_ui_stage == "INPUT_REQUIREMENTS":
                         "planner_iteration_count",
                         st.session_state.planner_iteration_count,
                     )
-                    next_ui_stage = "FAILED_PLANNING"  # Default if action is unexpected
+                    next_ui_stage = "FAILED_PLANNING"
                     if action == "clarification_needed":
                         next_ui_stage = "CLARIFICATION"
                     elif action == "plan_ready_for_code":
@@ -385,13 +379,10 @@ elif current_ui_stage == "INPUT_REQUIREMENTS":
                     st.session_state.ui_stage = "FAILED_PLANNING"
                     update_task_field(active_task_id, "status", "FAILED_PLANNING")
             st.rerun()
-# ... (CLARIFICATION stage: ensure update_task_field(active_task_id, "status", st.session_state.ui_stage) on transitions)
-# ... (DESIGN_TESTS stage: ensure update_task_field(active_task_id, "status", st.session_state.ui_stage) on transitions)
-# ... (INITIAL_CODE_GENERATION stage: ensure update_task_field(active_task_id, "status", st.session_state.ui_stage) on transitions)
 
 elif (
     current_ui_stage == "QA_VALIDATE_REVIEW" and active_task_id
-):  # Combined QA, Validation, Security
+):
     st.header(
         f"2c. Automated QA, Validation & Security Scan (Attempt {st.session_state.refinement_count})"
     )
@@ -399,9 +390,9 @@ elif (
     shared_for_flow = get_shared_for_flow()
     shared_for_flow["current_test_case_index"] = 0
     shared_for_flow["test_results_summary"] = []
-    shared_for_flow["all_tests_passed"] = True  # Assume true until a test fails
-    shared_for_flow["validation_issues"] = []  # Reset for this run
-    shared_for_flow["security_compliance_issues"] = []  # Reset for this run
+    shared_for_flow["all_tests_passed"] = True
+    shared_for_flow["validation_issues"] = []
+    shared_for_flow["security_compliance_issues"] = []
 
     if not shared_for_flow.get(
         "generated_project_structure"
@@ -419,9 +410,8 @@ elif (
             try:
                 action = qa_validation_security_flow.run(
                     shared_for_flow
-                )  # Use the new flow
+                )
                 st.session_state.update(shared_for_flow)
-                # Persist all results
                 if st.session_state.active_code_version_id:
                     for res in st.session_state.test_results_summary:
                         log_test_run_result(
@@ -439,7 +429,6 @@ elif (
                             st.session_state.validation_status,
                             st.session_state.validation_issues,
                         )
-                # Persist security results to tasks table
                 update_task_field(
                     active_task_id,
                     "security_status",
@@ -457,16 +446,15 @@ elif (
                 logger.error(f"QA/Validation/Security error: {e}", exc_info=True)
                 st.session_state.current_error_message = f"QA/Val/Sec error: {e}"
                 update_task_field(active_task_id, "status", "qa_val_sec_error_critical")
-                st.session_state.ui_stage = "HUMAN_REVIEW"  # Go to review even if error
+                st.session_state.ui_stage = "HUMAN_REVIEW"
         st.rerun()
 
 elif current_ui_stage == "HUMAN_REVIEW" and active_task_id:
     st.header(
         f"3. Your Review (Code Version from Attempt {st.session_state.refinement_count})"
     )
-    # ... (Display project files using tabs - same as before) ...
     project_structure = st.session_state.generated_project_structure
-    if project_structure and project_structure.get("files"):
+    if isinstance(project_structure, dict) and project_structure.get("files"):
         st.subheader("Generated Project Files:")
         file_names = [f["name"] for f in project_structure["files"]]
         tabs = st.tabs(file_names)
@@ -477,7 +465,6 @@ elif current_ui_stage == "HUMAN_REVIEW" and active_task_id:
         st.warning("No project code available.")
 
     st.subheader("Test Cases & Results:")
-    # ... (same display logic) ...
     test_summary = st.session_state.test_results_summary
     if test_summary:
         for i, tc_res in enumerate(test_summary):
@@ -513,7 +500,7 @@ elif current_ui_stage == "HUMAN_REVIEW" and active_task_id:
     else:
         st.info("Validation not run or status unknown.")
 
-    st.subheader("Security & Compliance Check:")  # New display section
+    st.subheader("Security & Compliance Check:")
     sec_status = st.session_state.get("security_compliance_status")
     sec_issues = st.session_state.get("security_compliance_issues", [])
     if sec_status == "pass":
@@ -565,12 +552,6 @@ elif current_ui_stage == "HUMAN_REVIEW" and active_task_id:
         st.warning(
             "Cannot approve until all tests, validation, and security checks pass."
         )
-
-# --- (PROVIDE_REJECTION_FEEDBACK, CRITIQUE_CODE, REFINE_CODE_POST_CRITIQUE,
-#      REDESIGN_TESTS_POST_REFINE, PACKAGING_COMPLETED, FAILED_PLANNING, MAX_REFINEMENTS_FAILED stages
-#      remain largely the same in structure as the previous full app.py version.
-#      Ensure their unique keys are updated, e.g., _v8_app)
-#      And ensure they update the task 'status' in DB on UI stage transitions.
 
 elif st.session_state.ui_stage == "PROVIDE_REJECTION_FEEDBACK" and active_task_id:
     st.header(
@@ -754,8 +735,8 @@ elif (
     if st.session_state.current_error_message:
         error_detail += f" Last Error: {st.session_state.current_error_message}"
     st.error(error_detail)
-    proj_struct_fail = st.session_state.generated_project_structure
-    if proj_struct_fail and proj_struct_fail.get("files"):
+    proj_struct_fail = st.session_state.get("generated_project_structure")
+    if isinstance(proj_struct_fail, dict) and proj_struct_fail.get("files"):
         st.subheader("Last Generated Project (if any):")
         tabs = st.tabs([f["name"] for f in proj_struct_fail["files"]])
         for i, f_info in enumerate(proj_struct_fail["files"]):
@@ -772,7 +753,7 @@ elif (
 
 elif (
     not active_task_id and current_ui_stage != "INPUT_REQUIREMENTS"
-):  # Use current_ui_stage
+):
     logger.info(
         f"No active task ID (current stage: {current_ui_stage}). Ensuring TASK_SELECTION."
     )

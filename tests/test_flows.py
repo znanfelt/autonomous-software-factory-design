@@ -1,9 +1,11 @@
-# tests/test_flows.py
+"""
+Unit tests for flows in the SDLC PocketFlow system.
+"""
 import unittest
-from unittest.mock import patch, MagicMock
 import sys
 import os
-import json  # For creating mock JSON strings
+import json
+from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -15,8 +17,6 @@ from flow import (
     critique_generation_flow,
     packaging_flow,
 )
-
-# Nodes are implicitly tested through the flows, but we mock their LLM calls
 
 
 class TestElicitationFlow(unittest.TestCase):

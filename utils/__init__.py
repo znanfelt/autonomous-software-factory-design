@@ -1,27 +1,38 @@
-import asyncio, warnings, copy, time
-
+"""
+Utility base classes and helpers for the SDLC PocketFlow system.
+"""
+import asyncio
+import warnings
+import copy
+import time
 
 class BaseNode:
+    """Base class for all nodes in the PocketFlow system."""
     def __init__(self):
         self.params, self.successors = {}, {}
 
     def set_params(self, params):
+        """Set parameters for the node."""
         self.params = params
 
     def next(self, node, action="default"):
+        """Set the next node for a given action."""
         if action in self.successors:
             warnings.warn(f"Overwriting successor for action '{action}'")
         self.successors[action] = node
         return node
 
     def prep(self, shared):
-        pass
+        """Prepare the node for execution. Override in subclasses."""
+        return None
 
     def exec(self, prep_res):
-        pass
+        """Execute the node logic. Override in subclasses."""
+        return None
 
     def post(self, shared, prep_res, exec_res):
-        pass
+        """Post-processing after execution. Override in subclasses."""
+        return None
 
     def _exec(self, prep_res):
         return self.exec(prep_res)
@@ -44,21 +55,22 @@ class BaseNode:
             return _ConditionalTransition(self, action)
         raise TypeError("Action must be a string")
 
-
 class _ConditionalTransition:
+    """Helper for conditional transitions between nodes."""
     def __init__(self, src, action):
         self.src, self.action = src, action
 
     def __rshift__(self, tgt):
         return self.src.next(tgt, self.action)
 
-
 class Node(BaseNode):
+    """Node with retry and wait logic."""
     def __init__(self, max_retries=1, wait=0):
         super().__init__()
         self.max_retries, self.wait = max_retries, wait
 
     def exec_fallback(self, prep_res, exc):
+        """Fallback logic if exec fails after retries."""
         raise exc
 
     def _exec(self, prep_res):
@@ -71,22 +83,24 @@ class Node(BaseNode):
                 if self.wait > 0:
                     time.sleep(self.wait)
 
-
 class BatchNode(Node):
+    """Node for batch processing."""
     def _exec(self, items):
         return [super(BatchNode, self)._exec(i) for i in (items or [])]
 
-
 class Flow(BaseNode):
+    """Flow controller for chaining nodes."""
     def __init__(self, start=None):
         super().__init__()
         self.start_node = start
 
     def start(self, start):
+        """Set the start node for the flow."""
         self.start_node = start
         return start
 
     def get_next_node(self, curr, action):
+        """Get the next node based on action."""
         nxt = curr.successors.get(action or "default")
         if not nxt and curr.successors:
             warnings.warn(f"Flow ends: '{action}' not found in {list(curr.successors)}")
@@ -110,29 +124,34 @@ class Flow(BaseNode):
         return self.post(shared, p, o)
 
     def post(self, shared, prep_res, exec_res):
+        """Post-processing after flow execution."""
         return exec_res
 
-
 class BatchFlow(Flow):
+    """Flow for batch processing."""
     def _run(self, shared):
         pr = self.prep(shared) or []
         for bp in pr:
             self._orch(shared, {**self.params, **bp})
         return self.post(shared, pr, None)
 
-
 class AsyncNode(Node):
+    """Async version of Node."""
     async def prep_async(self, shared):
-        pass
+        """Async preparation. Override in subclasses."""
+        return None
 
     async def exec_async(self, prep_res):
-        pass
+        """Async execution. Override in subclasses."""
+        return None
 
     async def exec_fallback_async(self, prep_res, exc):
+        """Async fallback logic."""
         raise exc
 
     async def post_async(self, shared, prep_res, exec_res):
-        pass
+        """Async post-processing."""
+        return None
 
     async def _exec(self, prep_res):
         for i in range(self.max_retries):
@@ -157,20 +176,20 @@ class AsyncNode(Node):
     def _run(self, shared):
         raise RuntimeError("Use run_async.")
 
-
 class AsyncBatchNode(AsyncNode, BatchNode):
+    """Async batch node."""
     async def _exec(self, items):
         return [await super(AsyncBatchNode, self)._exec(i) for i in items]
 
-
 class AsyncParallelBatchNode(AsyncNode, BatchNode):
+    """Async parallel batch node."""
     async def _exec(self, items):
         return await asyncio.gather(
             *(super(AsyncParallelBatchNode, self)._exec(i) for i in items)
         )
 
-
 class AsyncFlow(Flow, AsyncNode):
+    """Async flow controller."""
     async def _orch_async(self, shared, params=None):
         curr, p, last_action = (
             copy.copy(self.start_node),
@@ -193,18 +212,19 @@ class AsyncFlow(Flow, AsyncNode):
         return await self.post_async(shared, p, o)
 
     async def post_async(self, shared, prep_res, exec_res):
+        """Async post-processing after flow execution."""
         return exec_res
 
-
 class AsyncBatchFlow(AsyncFlow, BatchFlow):
+    """Async batch flow."""
     async def _run_async(self, shared):
         pr = await self.prep_async(shared) or []
         for bp in pr:
             await self._orch_async(shared, {**self.params, **bp})
         return await self.post_async(shared, pr, None)
 
-
 class AsyncParallelBatchFlow(AsyncFlow, BatchFlow):
+    """Async parallel batch flow."""
     async def _run_async(self, shared):
         pr = await self.prep_async(shared) or []
         await asyncio.gather(

@@ -1,14 +1,11 @@
-# tests/test_nodes.py
+"""
+Unit tests for nodes in the SDLC PocketFlow system.
+"""
 import unittest
-from unittest.mock import (
-    patch,
-    MagicMock,
-)  # Ensure MagicMock is imported if used, though not in current snippets
 import sys
 import os
-import json  # Ensure json is imported for tests that mock JSON string returns
-
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import json
+from unittest.mock import patch
 from nodes import (
     DeveloperNode,
     InitialRequestNode,
@@ -21,8 +18,6 @@ from nodes import (
     SecurityComplianceNode,
 )
 from utils.prompts import DEVELOPER_CODEGEN_PROMPT_TEMPLATE
-
-# from utils.tools import extract_project_structure_from_llm # Not directly tested here
 
 
 class TestInitialRequestNode(unittest.TestCase):
