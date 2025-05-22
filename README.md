@@ -165,7 +165,7 @@ WORKDIR /app
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.runOnSave=true"]
 ```
 
-If you see `KeyError: 'utils'` or `KeyError: 'nodes'`, this is almost always a Python import/module path issue in Docker. See the troubleshooting section above.
+If you see `KeyError: 'utils'` or `KeyError: 'nodes'`, this is almost always a Python import/module path issue in Docker.
 
 ## Future Enhancements
 
