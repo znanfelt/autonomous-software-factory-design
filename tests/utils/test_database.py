@@ -9,13 +9,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock  # Ensure MagicMock is imported
 
 # Adjust path to import from parent directory (utils)
-sys.path.insert(
-    0,
-    str(
-        Path(__file__).resolve().parent.parent.parent
-        / "autonomous-software-factory-design-main"
-    ),
-)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from utils import database
 
