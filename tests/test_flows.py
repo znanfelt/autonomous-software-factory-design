@@ -329,6 +329,11 @@ class TestPackagingFlow(unittest.TestCase):
             shared_state["packaged_artifacts_info"]["project_files"][0]["name"],
             "final_app.py",
         )
+        # Ensure the flow stored a useful handoff summary
+        self.assertIn(
+            "packaged project",
+            shared_state.get("handoff_summary", "").lower(),
+        )
 
 
 if __name__ == "__main__":
