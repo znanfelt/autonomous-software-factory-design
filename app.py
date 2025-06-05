@@ -380,6 +380,75 @@ elif current_ui_stage == "INPUT_REQUIREMENTS":
                     update_task_field(active_task_id, "status", "FAILED_PLANNING")
             st.rerun()
 
+elif st.session_state.ui_stage == "DESIGN_TESTS" and active_task_id:
+    st.header("2a. Designing Test Cases")
+    shared_for_flow = get_shared_for_flow()
+    with st.spinner("Designing tests..."):
+        try:
+            action = test_design_flow.run(shared_for_flow)
+            st.session_state.update(shared_for_flow)
+            if st.session_state.generated_test_cases:
+                update_task_field(
+                    active_task_id,
+                    "generated_test_cases_json",
+                    st.session_state.generated_test_cases,
+                )
+            if (
+                st.session_state.current_error_message
+                or not st.session_state.generated_test_cases
+            ):
+                st.session_state.current_error_message = st.session_state.get(
+                    "current_error_message", "Test design failed."
+                )
+                st.session_state.ui_stage = "FAILED_PLANNING"
+                update_task_field(active_task_id, "status", "FAILED_PLANNING")
+            else:
+                st.session_state.ui_stage = "INITIAL_CODE_GEN"
+                update_task_field(active_task_id, "status", "INITIAL_CODE_GEN")
+        except Exception as e:
+            logger.error(f"Test design error: {e}", exc_info=True)
+            st.session_state.current_error_message = f"Test design error: {e}"
+            st.session_state.ui_stage = "FAILED_PLANNING"
+            update_task_field(active_task_id, "status", "FAILED_PLANNING")
+    st.rerun()
+
+elif st.session_state.ui_stage == "INITIAL_CODE_GEN" and active_task_id:
+    st.header(
+        f"2b. AI Generating Code (Attempt {st.session_state.refinement_count + 1})"
+    )
+    shared_for_flow = get_shared_for_flow()
+    with st.spinner("AI generating code..."):
+        try:
+            action = code_generation_flow.run(shared_for_flow)
+            st.session_state.update(shared_for_flow)
+            st.session_state.refinement_count = shared_for_flow.get(
+                "refinement_count", st.session_state.refinement_count
+            )
+            update_task_field(
+                active_task_id, "refinement_count", st.session_state.refinement_count
+            )
+            if action == "code_ready_for_tests":
+                cv_id = add_code_version(
+                    active_task_id,
+                    json.dumps(st.session_state.generated_project_structure),
+                    st.session_state.refinement_count,
+                )
+                st.session_state.active_code_version_id = cv_id
+                st.session_state.ui_stage = "QA_VALIDATE_REVIEW"
+                update_task_field(active_task_id, "status", "QA_VALIDATE_REVIEW")
+            else:
+                st.session_state.current_error_message = st.session_state.get(
+                    "current_error_message", "Initial code generation failed."
+                )
+                st.session_state.ui_stage = "FAILED_PLANNING"
+                update_task_field(active_task_id, "status", "FAILED_PLANNING")
+        except Exception as e:
+            logger.error(f"Initial code gen error: {e}", exc_info=True)
+            st.session_state.current_error_message = f"Initial code gen error: {e}"
+            st.session_state.ui_stage = "FAILED_PLANNING"
+            update_task_field(active_task_id, "status", "FAILED_PLANNING")
+    st.rerun()
+
 elif (
     current_ui_stage == "QA_VALIDATE_REVIEW" and active_task_id
 ):
