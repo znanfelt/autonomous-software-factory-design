@@ -182,6 +182,8 @@ ALLOWED_TASK_FIELDS = [
     "current_error_message",
     "planner_iteration_count",
     "generated_test_cases_json",
+    "security_status",
+    "security_issues",
     "updated_at",
 ]
 
