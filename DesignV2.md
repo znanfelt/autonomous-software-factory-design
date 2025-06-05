@@ -1,6 +1,6 @@
 # Design: Simple SDLC App with PocketFlow, Streamlit GUI, and HITL
 
-## 1. Requirements**
+## 1. Requirements
 
 * **Goal:** Create a web application where a user can describe a simple Python function, and an AI system will attempt to generate the code, generate test cases, test it, and allow the user to review, approve, or request refinements.
 * **User Stories:**
@@ -17,7 +17,7 @@
 * **HITL:** Human interaction will occur for initial requirements, clarifications, and final review/feedback.
 * **PocketFlow:** The core SDLC logic (planning, coding, testing, critiquing, refining) will be managed by PocketFlow nodes and flows.
 
-## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)**
+## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)
 
 The application will progress through several stages, managed by `streamlit.session_state`. PocketFlow `Flow` instances will be run at different stages.
 
@@ -203,7 +203,7 @@ pocketflow_sft_dev_app/
 
 # Design: Simple SDLC App with PocketFlow, Streamlit GUI, HITL, Docker, and SQLite
 
-## 1. Requirements**
+## 1. Requirements
 
 * **Goal:** Create a web application where a user can describe a simple Python function. An AI system will generate the code, test cases, test it, and allow the user to review, approve, or request refinements.
 * **User Stories:** (Same as before)
@@ -213,7 +213,7 @@ pocketflow_sft_dev_app/
 * **Persistence:** State (requests, code, tests, feedback) persisted in an SQLite database.
 * **Deployment:** Application containerized using Docker.
 
-## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)**
+## 2. Flow Design (Conceptual Stages managed by Streamlit UI & PocketFlow)
 
 The conceptual flow remains the same. `st.session_state` will hold data for the *currently active* task, loaded from/saved to SQLite.
 
