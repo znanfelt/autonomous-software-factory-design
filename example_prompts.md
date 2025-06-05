@@ -14,7 +14,6 @@ The scraper should handle basic requests errors gracefully.
 
 "
 ```
-update test case 1 to actual. find another url for 3, the connection error isn't happening
 **Why this should lead to multi-file:**
 
 * Explicitly mentions two files: `scraper_utils.py` and `app.py`.
