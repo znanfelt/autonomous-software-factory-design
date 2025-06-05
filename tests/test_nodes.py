@@ -135,12 +135,27 @@ class TestDeveloperNode(
     @patch("nodes.call_llm")
     def test_exec_success_code_extraction(self, mock_call_llm):
         mock_call_llm.return_value = json.dumps(
-            {"files": [{"name": "main.py", "content": "def add(a,b): return a+b"}]}
+            {
+                "entry_point_file": "main.py",
+                "files": [
+                    {"name": "main.py", "content": "def add(a,b): return a+b"}
+                ],
+            }
         )
         prep_data = self.node.prep(self.shared_state)
         exec_result = self.node.exec(prep_data)
+
+        # Basic structure assertions
         self.assertIsInstance(exec_result, dict)
         self.assertIn("files", exec_result)
+
+        # Verify LLM was called exactly once
+        mock_call_llm.assert_called_once()
+
+        # Check expected keys/values in the returned structure
+        self.assertIn("entry_point_file", exec_result)
+        self.assertEqual(exec_result["entry_point_file"], "main.py")
+        self.assertEqual(exec_result["files"][0]["name"], "main.py")
 
 
 class TestTestCaseDesignerNode(unittest.TestCase):  # Assuming previous tests were fine
