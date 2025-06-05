@@ -1770,7 +1770,7 @@ LLM_MODELS_CONFIG = {
     "architect_llm":  os.getenv("ARCHITECT_LLM_MODEL", "gpt-4o"),
     "planner_llm":    os.getenv("PLANNER_LLM_MODEL", "gpt-4o"),
     "developer_llm":  os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"), # Cheaper for code gen
-    "test_designer_llm": os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"), # Re-use
+    "test_designer_llm": os.getenv("TEST_DESIGNER_LLM_MODEL", "gpt-3.5-turbo"),
     "qa_llm":         os.getenv("QA_LLM_MODEL", "gpt-4o"), # QA might need more capability for tool use prompt
     "validation_llm": os.getenv("VALIDATION_LLM_MODEL", "gpt-3.5-turbo"),
     "critique_llm":   os.getenv("CRITIQUE_LLM_MODEL", "gpt-4o-mini")
