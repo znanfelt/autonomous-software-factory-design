@@ -82,7 +82,7 @@ LLM_MODELS_CONFIG = {
     "architect_llm": os.getenv("ARCHITECT_LLM_MODEL", "gpt-4o"),
     "planner_llm": os.getenv("PLANNER_LLM_MODEL", "gpt-4o"),
     "developer_llm": os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"),
-    "test_designer_llm": os.getenv("DEVELOPER_LLM_MODEL", "gpt-3.5-turbo"),
+    "test_designer_llm": os.getenv("TEST_DESIGNER_LLM_MODEL", "gpt-3.5-turbo"),
     "validation_llm": os.getenv("VALIDATION_LLM_MODEL", "gpt-3.5-turbo"),
     "security_llm": os.getenv(
         "SECURITY_LLM_MODEL", "gpt-3.5-turbo"

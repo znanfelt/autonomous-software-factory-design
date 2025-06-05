@@ -579,7 +579,7 @@ class SecurityComplianceNode(Node):
             f"SecurityComplianceNode - Executing for plan: {prep_res['task_description_json_str'][:100]}..."
         )
         llm_model = prep_res["llm_models_config"].get(
-            "validation_llm", "gpt-4o"
+            "security_llm", "gpt-4o"
         )
 
         sec_prompt = SECURITY_COMPLIANCE_PROMPT_TEMPLATE.format(**prep_res)
