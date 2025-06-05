@@ -1,7 +1,7 @@
 # Example Multi-file Prompts
 Here are three prompts designed to encourage the AI Planner/Developer to create a multi-file Python application, keeping in mind the MVP's focus on standard libraries. These prompts are for the *user* to input into the Streamlit app at the "INPUT_REQUIREMENTS" stage.
 
-## Prompt 1: Simple Web Scraper and Data Saver**
+## Prompt 1: Simple Web Scraper and Data Saver
 
 ```text
 "
